@@ -866,7 +866,7 @@ reload:
 
   if (!rebuilt_manifest) { // Don't get caught in an infinite loop by a rebuild
                            // target that is never up to date.
-    Builder manifest_builder(globals.state, config, &build_log,
+    Builder manifest_builder(globals.state, config, &build_log, &deps_log,
                              &disk_interface);
     if (RebuildManifest(&manifest_builder, input_file, &err)) {
       rebuilt_manifest = true;
@@ -878,7 +878,8 @@ reload:
     }
   }
 
-  Builder builder(globals.state, config, &build_log, &disk_interface);
+  Builder builder(globals.state, config, &build_log, &deps_log,
+                  &disk_interface);
   int result = RunBuild(&builder, argc, argv);
   if (g_metrics)
     DumpMetrics(&globals);
