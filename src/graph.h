@@ -204,7 +204,8 @@ struct ImplicitDepLoader {
  private:
   /// Load implicit dependencies for \a edge from a depfile attribute.
   /// @return false on error (without filling \a err if info is just missing).
-  bool LoadDepFile(Edge* edge, const string& path, string* err);
+  bool LoadDepFile(Edge* edge, const string& path, const string& depformat,
+                   string* err);
 
   /// Load implicit dependencies for \a edge from the DepsLog.
   /// @return false on error (without filling \a err if info is just missing).

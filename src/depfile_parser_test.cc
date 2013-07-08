@@ -137,3 +137,17 @@ TEST_F(DepfileParserTest, RejectMultipleDifferentOutputs) {
   string err;
   EXPECT_FALSE(Parse("foo bar: x y z", &err));
 }
+
+extern string FixupSNCDep(string);
+
+TEST_F(DepfileParserTest, ParseSNCDeps) {
+  // Check that SNC-format .d file is properly parsed.
+  string snc_dep = \
+"obj/foo/bar/output.o: ../../../foo/bar/input0.cc\n"
+"obj/foo/bar/output.o: ../../../foo/bar/input0.h\n"
+"obj/foo/bar/output.o: ../../../foo/bar/input1.h \n";
+  string gcc_dep = FixupSNCDep(snc_dep);
+  string err;
+  EXPECT_TRUE(Parse(gcc_dep.c_str(), &err));
+  ASSERT_EQ(parser_.out_.AsString(), "obj/foo/bar/output.o");
+}

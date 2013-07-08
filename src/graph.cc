@@ -14,6 +14,8 @@
 
 #include "graph.h"
 
+#include <algorithm>
+
 #include <assert.h>
 #include <stdio.h>
 
@@ -48,6 +50,7 @@ const EvalString* Rule::GetBinding(const string& key) const {
 bool Rule::IsReservedBinding(const string& var) {
   return var == "command" ||
       var == "depfile" ||
+      var == "depformat" ||
       var == "description" ||
       var == "deps" ||
       var == "generator" ||
@@ -345,8 +348,9 @@ bool ImplicitDepLoader::LoadDeps(Edge* edge, TimeStamp* mtime, string* err) {
   }
 
   string depfile = edge->GetBinding("depfile");
+  string depformat = edge->GetBinding("depformat");
   if (!depfile.empty()) {
-    if (!LoadDepFile(edge, depfile, err)) {
+    if (!LoadDepFile(edge, depfile, depformat, err)) {
       if (!err->empty())
         return false;
       EXPLAIN("depfile '%s' is missing", depfile.c_str());
@@ -359,7 +363,57 @@ bool ImplicitDepLoader::LoadDeps(Edge* edge, TimeStamp* mtime, string* err) {
   return true;
 }
 
+static void trim(string& s) {
+  s.erase(0, s.find_first_not_of(" \t\n\r"));
+  s.erase(s.find_last_not_of(" \t\n\r") + 1);
+}
+
+static void fixslashes(string& s) {
+  std::replace(s.begin(), s.end(), '\\', '/');
+}
+
+string FixupSNCDep(string content) {
+  // Each dependency is on a separate line.
+  vector<string> lines;
+  char* line = strtok((char*)content.c_str(), "\n");
+  while (line) {
+    lines.push_back(line);
+    line = strtok(NULL, "\n");
+  }
+
+  size_t colon = lines[0].find(':');
+  string output = lines[0].substr(0, colon);
+  vector<string> deps;
+  deps.push_back(lines[0].substr(colon + 1));
+  trim(deps[0]);
+
+  for (uint32_t i = 1; i < lines.size(); ++i) {
+    string dep = lines[i].substr(lines[i].find(':') + 1);
+    trim(dep);
+    deps.push_back(dep);
+  }
+
+  for (uint32_t i = 0; i < deps.size(); ++i) {
+    fixslashes(deps[i]);
+  }
+
+  string gcc_format = output;
+  gcc_format += ": \\\n";
+  for (uint32_t i = 0; i < deps.size(); ++i) {
+    gcc_format += deps[i];
+    if (i < deps.size() - 1) {
+      gcc_format += " \\\n";
+    }
+  }
+  gcc_format += "\n";
+  for (uint32_t i = 0; i < deps.size(); ++i) {
+    gcc_format += deps[i] + ":\n";
+  }
+  return gcc_format;
+}
+
 bool ImplicitDepLoader::LoadDepFile(Edge* edge, const string& path,
+                                    const string& depformat,
                                     string* err) {
   METRIC_RECORD("depfile load");
   string content = disk_interface_->ReadFile(path, err);
@@ -370,6 +424,10 @@ bool ImplicitDepLoader::LoadDepFile(Edge* edge, const string& path,
   // On a missing depfile: return false and empty *err.
   if (content.empty())
     return false;
+
+  if (depformat == "snc") {
+    content = FixupSNCDep(content);
+  }
 
   DepfileParser depfile;
   string depfile_err;
