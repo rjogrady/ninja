@@ -17,6 +17,7 @@
 #include <algorithm>
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include "build_log.h"
