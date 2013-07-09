@@ -233,7 +233,7 @@ struct EdgeEnv : public Env {
   /// line.
   string MakePathList(vector<Node*>::iterator begin,
                       vector<Node*>::iterator end,
-                      char sep);
+                      char sep, bool strip_ext);
 
   Edge* edge_;
 };
@@ -244,11 +244,16 @@ string EdgeEnv::LookupVariable(const string& var) {
       edge_->order_only_deps_;
     return MakePathList(edge_->inputs_.begin(),
                         edge_->inputs_.begin() + explicit_deps_count,
-                        var == "in" ? ' ' : '\n');
+                        var == "in" ? ' ' : '\n', false);
   } else if (var == "out") {
     return MakePathList(edge_->outputs_.begin(),
                         edge_->outputs_.end(),
-                        ' ');
+                        ' ', false);
+  } else if (var == "out_no_ext") {
+    // Same as out, but with output's extension stripped off.
+    return MakePathList(edge_->outputs_.begin(),
+                        edge_->outputs_.end(),
+                        ' ', true);
   }
 
   // See notes on BindingEnv::LookupWithFallback.
@@ -258,12 +263,15 @@ string EdgeEnv::LookupVariable(const string& var) {
 
 string EdgeEnv::MakePathList(vector<Node*>::iterator begin,
                              vector<Node*>::iterator end,
-                             char sep) {
+                             char sep, bool strip_ext) {
   string result;
   for (vector<Node*>::iterator i = begin; i != end; ++i) {
     if (!result.empty())
       result.push_back(sep);
-    const string& path = (*i)->path();
+
+    const string& orig_path = (*i)->path();
+    const string& path = strip_ext ?
+        orig_path.substr(0, orig_path.find_last_of(".")) : orig_path;
     if (path.find(" ") != string::npos) {
       result.append("\"");
       result.append(path);
