@@ -183,6 +183,7 @@ void Usage(const BuildConfig& config) {
 "  -n       dry run (don't run commands but act like they succeeded)\n"
 "  -v       show all command lines while building\n"
 "\n"
+"  -b       run build in batch mode with SN-DBS\n"
 "  -d MODE  enable debugging (use -d list to list modes)\n"
 "  -t TOOL  run a subtool (use -t list to list subtools)\n"
 "    terminates toplevel options; further flags are passed to the tool\n",
@@ -863,7 +864,7 @@ int ReadFlags(int* argc, char*** argv,
 
   int opt;
   while (!options->tool &&
-         (opt = getopt_long(*argc, *argv, "d:f:j:k:l:nt:vC:h", kLongOptions,
+         (opt = getopt_long(*argc, *argv, "bd:f:j:k:l:nt:vC:h", kLongOptions,
                             NULL)) != -1) {
     switch (opt) {
       case 'd':
@@ -903,6 +904,9 @@ int ReadFlags(int* argc, char*** argv,
       }
       case 'n':
         config->dry_run = true;
+        break;
+      case 'b':
+        config->batch_mode = true;
         break;
       case 't':
         options->tool = ChooseTool(optarg);

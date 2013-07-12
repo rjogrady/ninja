@@ -460,7 +460,7 @@ void Plan::Dump() {
 }
 
 struct RealCommandRunner : public CommandRunner {
-  explicit RealCommandRunner(const BuildConfig& config) : config_(config) {}
+  explicit RealCommandRunner(const BuildConfig& config);
   virtual ~RealCommandRunner() {}
   virtual bool CanRunMore();
   virtual bool StartCommand(Edge* edge);
@@ -472,6 +472,11 @@ struct RealCommandRunner : public CommandRunner {
   SubprocessSet subprocs_;
   map<Subprocess*, Edge*> subproc_to_edge_;
 };
+
+RealCommandRunner::RealCommandRunner(const BuildConfig& config)
+  : config_(config) {
+  subprocs_.SetBatchMode(config.batch_mode);
+}
 
 vector<Edge*> RealCommandRunner::GetActiveEdges() {
   vector<Edge*> edges;

@@ -14,13 +14,15 @@
 
 #include "subprocess.h"
 
+#include <stdint.h>
 #include <stdio.h>
 
 #include <algorithm>
 
 #include "util.h"
 
-Subprocess::Subprocess() : child_(NULL) , overlapped_(), is_reading_(false) {
+Subprocess::Subprocess() : child_(NULL) , overlapped_(), is_reading_(false), pipe_(NULL),
+                           use_override_status_(false), override_status_(ExitFailure) {
 }
 
 Subprocess::~Subprocess() {
@@ -161,6 +163,10 @@ void Subprocess::OnPipeReady() {
 }
 
 ExitStatus Subprocess::Finish() {
+  if (use_override_status_) {
+    return override_status_;
+  }
+
   if (!child_)
     return ExitFailure;
 
@@ -188,7 +194,7 @@ const string& Subprocess::GetOutput() const {
 
 HANDLE SubprocessSet::ioport_;
 
-SubprocessSet::SubprocessSet() {
+SubprocessSet::SubprocessSet() : batch_mode_(false) {
   ioport_ = ::CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
   if (!ioport_)
     Win32Fatal("CreateIoCompletionPort");
@@ -203,6 +209,34 @@ SubprocessSet::~SubprocessSet() {
   CloseHandle(ioport_);
 }
 
+void SubprocessSet::SetBatchMode(bool b) {
+  if (b) {
+    // Try to detect if dbsrun is in the PATH.
+    DWORD searchRet = SearchPath(
+        NULL, "dbsrun.exe", NULL, 0, NULL, NULL);
+    if (searchRet == 0) {
+      batch_mode_ = false;
+      return;
+    }
+
+    batch_mode_ = true;
+    string userName;
+    DWORD userSize = GetEnvironmentVariable("USERNAME", NULL, 0);
+    if (userSize) {
+      char* userNameBuf = new char[userSize];
+      GetEnvironmentVariable("USERNAME", userNameBuf, userSize);
+      userName = userNameBuf;
+      delete[] userNameBuf;
+    } else {
+      userName = "Unknown";
+    }
+    batch_command_ = string("dbsrun dbsbuild -p ") +
+        userName + string(" -s ");
+  } else {
+    batch_mode_ = false;
+  }
+}
+
 BOOL WINAPI SubprocessSet::NotifyInterrupted(DWORD dwCtrlType) {
   if (dwCtrlType == CTRL_C_EVENT || dwCtrlType == CTRL_BREAK_EVENT) {
     if (!PostQueuedCompletionStatus(ioport_, 0, 0, NULL))
@@ -215,18 +249,35 @@ BOOL WINAPI SubprocessSet::NotifyInterrupted(DWORD dwCtrlType) {
 
 Subprocess *SubprocessSet::Add(const string& command) {
   Subprocess *subprocess = new Subprocess;
-  if (!subprocess->Start(this, command)) {
-    delete subprocess;
-    return 0;
+  if (batch_mode_) {
+    procs_to_batch_.push_back(SubProc(subprocess, command));
+  } else {
+    if (!subprocess->Start(this, command)) {
+      delete subprocess;
+      return 0;
+    }
+    if (subprocess->child_)
+      running_.push_back(subprocess);
+    else
+      finished_.push(subprocess);
   }
-  if (subprocess->child_)
-    running_.push_back(subprocess);
-  else
-    finished_.push(subprocess);
   return subprocess;
 }
 
 bool SubprocessSet::DoWork() {
+  if (procs_to_batch_.size()) {
+    batch_process_ = new BatchSubprocess(procs_to_batch_);
+    string full_command = batch_command_ + batch_process_->GetCommand();
+    if (!batch_process_->Start(this, full_command)) {
+      delete batch_process_;
+      batch_process_ = NULL;
+      return true;
+    }
+    if (batch_process_->child_) {
+      running_.push_back(batch_process_);
+    }
+    procs_to_batch_.clear();
+  }
   DWORD bytes_read;
   Subprocess* subproc;
   OVERLAPPED* overlapped;
@@ -244,11 +295,37 @@ bool SubprocessSet::DoWork() {
   subproc->OnPipeReady();
 
   if (subproc->Done()) {
-    vector<Subprocess*>::iterator end =
+    if (subproc == batch_process_) {
+      ExitStatus err = batch_process_->Finish();
+      if (subproc->buf_.length()) {
+        // TODO: Use linewriter from BuildStatus here properly.
+        // Or something better.
+        printf("\n%s\n", subproc->buf_.c_str());
+      }
+      const std::vector<Subprocess*>& children = batch_process_->GetChildren();
+      for (std::vector<Subprocess*>::const_iterator it = children.begin();
+        it != children.end();
+        ++it) {
+          Subprocess* child = *it;
+          child->use_override_status_ = true;
+          child->override_status_ = err;
+          finished_.push(child);
+      }
+
+      vector<Subprocess*>::iterator end =
+          std::remove(running_.begin(), running_.end(), batch_process_);
+      if (running_.end() != end) {
+        running_.resize(end - running_.begin());
+      }
+      delete batch_process_;
+      batch_process_ = NULL;
+    } else {
+      vector<Subprocess*>::iterator end =
         std::remove(running_.begin(), running_.end(), subproc);
-    if (running_.end() != end) {
-      finished_.push(subproc);
-      running_.resize(end - running_.begin());
+      if (running_.end() != end) {
+        finished_.push(subproc);
+        running_.resize(end - running_.begin());
+      }
     }
   }
 
@@ -277,4 +354,52 @@ void SubprocessSet::Clear() {
        i != running_.end(); ++i)
     delete *i;
   running_.clear();
+}
+
+static string GetTempFileName() {
+  char tempPath[MAX_PATH];
+  char tempName[MAX_PATH];
+  string temp_file;
+  DWORD ret = GetTempPath(MAX_PATH, tempPath);
+  if (ret > MAX_PATH || ret == 0) {
+    return temp_file;
+  }
+  UINT uret = GetTempFileName(tempPath, "script", 0, tempName);
+  if (uret == 0) {
+    return temp_file;
+  }
+
+  temp_file = tempName;
+  return temp_file;
+}
+
+BatchSubprocess::BatchSubprocess(const vector<SubProc>& batch_procs) {
+  script_filename_= GetTempFileName();
+  if (script_filename_.empty()) {
+    Win32Fatal("GetTempFileName");
+    return;
+  }
+
+  // Write all the commands to a batch file and add these
+  // subprocs to our internal list.
+  std::string script_contents;
+  for (uint32_t i = 0; i < batch_procs.size(); ++i) {
+    const SubProc& sp = batch_procs[i];
+    script_contents += sp.second;
+    script_contents += "\n";
+    AppendChild(sp.first);
+  }
+
+  // Write the batch file.
+  RealDiskInterface rdi;
+  rdi.WriteFile(script_filename_, script_contents);
+}
+
+const string& BatchSubprocess::GetCommand() const {
+  return script_filename_;
+}
+
+BatchSubprocess::~BatchSubprocess() {
+  RealDiskInterface rdi;
+  rdi.RemoveFile(script_filename_);
 }

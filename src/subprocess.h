@@ -26,6 +26,7 @@ using namespace std;
 #include <signal.h>
 #endif
 
+#include "disk_interface.h"
 #include "exit_status.h"
 
 /// Subprocess wraps a single async subprocess.  It is entirely
@@ -43,7 +44,7 @@ struct Subprocess {
 
   const string& GetOutput() const;
 
- private:
+ protected:
   Subprocess();
   bool Start(struct SubprocessSet* set, const string& command);
   void OnPipeReady();
@@ -60,12 +61,29 @@ struct Subprocess {
   OVERLAPPED overlapped_;
   char overlapped_buf_[4 << 10];
   bool is_reading_;
+  bool use_override_status_;
+  ExitStatus override_status_;
 #else
   int fd_;
   pid_t pid_;
 #endif
-
+  friend struct BatchSubprocess;
   friend struct SubprocessSet;
+};
+
+typedef std::pair<Subprocess*, std::string> SubProc;
+
+struct BatchSubprocess : public Subprocess {
+  BatchSubprocess(const vector<SubProc>& procs);
+  ~BatchSubprocess();
+  const std::vector<Subprocess*>& GetChildren() const { return children_; }
+  const string& GetCommand() const;
+private:
+  string script_filename_;
+  void AppendChild(Subprocess* s) { children_.push_back(s); }
+  std::vector<Subprocess*> children_;
+  friend struct SubprocessSet;
+
 };
 
 /// SubprocessSet runs a ppoll/pselect() loop around a set of Subprocesses.
@@ -79,14 +97,20 @@ struct SubprocessSet {
   bool DoWork();
   Subprocess* NextFinished();
   void Clear();
-
   vector<Subprocess*> running_;
   queue<Subprocess*> finished_;
-
 #ifdef _WIN32
+  /// Enable batching of jobs for submission to dbsrun.
+  void SetBatchMode(bool b);
   static BOOL WINAPI NotifyInterrupted(DWORD dwCtrlType);
   static HANDLE ioport_;
+  vector<SubProc> procs_to_batch_;
+  bool batch_mode_;
+  BatchSubprocess* batch_process_;
+  string batch_command_;
 #else
+  // No-op on POSIX
+  void SetBatchMode(bool b) {}
   static void SetInterruptedFlag(int signum);
   static bool interrupted_;
 
