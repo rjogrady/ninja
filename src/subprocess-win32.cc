@@ -297,19 +297,24 @@ bool SubprocessSet::DoWork() {
   if (subproc->Done()) {
     if (subproc == batch_process_) {
       ExitStatus err = batch_process_->Finish();
-      if (subproc->buf_.length()) {
+      set<int> successful_jobs;
+      string parsed_output;
+      batch_process_->ParseOutput(parsed_output, successful_jobs);
+      if (!parsed_output.empty()) {
         // TODO: Use linewriter from BuildStatus here properly.
         // Or something better.
         printf("\n%s\n", subproc->buf_.c_str());
       }
       const std::vector<Subprocess*>& children = batch_process_->GetChildren();
-      for (std::vector<Subprocess*>::const_iterator it = children.begin();
-        it != children.end();
-        ++it) {
-          Subprocess* child = *it;
-          child->use_override_status_ = true;
-          child->override_status_ = err;
-          finished_.push(child);
+      for (uint32_t child = 0; child < children.size(); ++child) {
+        Subprocess* c = children[child];
+        c->use_override_status_ = true;
+        if (successful_jobs.count(child) == 1) {
+          c->override_status_ = ExitSuccess;
+        } else {
+          c->override_status_ = err;
+        }
+        finished_.push(c);
       }
 
       vector<Subprocess*>::iterator end =
@@ -386,7 +391,10 @@ BatchSubprocess::BatchSubprocess(const vector<SubProc>& batch_procs) {
   for (uint32_t i = 0; i < batch_procs.size(); ++i) {
     const SubProc& sp = batch_procs[i];
     script_contents += sp.second;
-    script_contents += "\n";
+    char tokenbuf[128];
+    _snprintf(tokenbuf, sizeof(tokenbuf), " && echo __batchitem__=%d\n", i);
+    // Add a token so we know which items complete successfully.
+    script_contents += tokenbuf;
     AppendChild(sp.first);
   }
 
@@ -395,11 +403,35 @@ BatchSubprocess::BatchSubprocess(const vector<SubProc>& batch_procs) {
   rdi.WriteFile(script_filename_, script_contents);
 }
 
+BatchSubprocess::~BatchSubprocess() {
+  RealDiskInterface rdi;
+  rdi.RemoveFile(script_filename_);
+}
+
 const string& BatchSubprocess::GetCommand() const {
   return script_filename_;
 }
 
-BatchSubprocess::~BatchSubprocess() {
-  RealDiskInterface rdi;
-  rdi.RemoveFile(script_filename_);
+void BatchSubprocess::ParseOutput(string& output, set<int>& successful_jobs) {
+  // Output is intermixed job output with __batchitem__=XXXX strings.
+  // Go through and remove all the __batchitem__ tokens to figure out
+  // which jobs succeeded, and get the real output.
+  const string bi = "__batchitem__";
+  size_t loc = buf_.find(bi);
+  while (loc != string::npos) {
+    size_t jobIdStart = loc + bi.length() + 1;
+    int jobId = atoi(&buf_[jobIdStart]);
+    successful_jobs.insert(jobId);
+    
+    size_t newline = jobIdStart;
+    while (buf_[newline] != '\n') {
+      ++newline;
+    }
+    
+    // Erase that entire token
+    buf_.erase(loc, newline - loc + 1);
+    // Get the next one.
+    loc = buf_.find(bi);
+  }
+  output = buf_;
 }

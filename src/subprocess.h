@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 #include <queue>
+#include <set>
 using namespace std;
 
 #ifdef _WIN32
@@ -76,8 +77,9 @@ typedef std::pair<Subprocess*, std::string> SubProc;
 struct BatchSubprocess : public Subprocess {
   BatchSubprocess(const vector<SubProc>& procs);
   ~BatchSubprocess();
-  const std::vector<Subprocess*>& GetChildren() const { return children_; }
+  const vector<Subprocess*>& GetChildren() const { return children_; }
   const string& GetCommand() const;
+  void ParseOutput(string& output, set<int>& successful_jobs);
 private:
   string script_filename_;
   void AppendChild(Subprocess* s) { children_.push_back(s); }
