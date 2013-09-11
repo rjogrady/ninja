@@ -377,8 +377,29 @@ static void trim(string& s) {
   s.erase(s.find_last_not_of(" \t\n\r") + 1);
 }
 
-static void fixslashes(string& s) {
-  std::replace(s.begin(), s.end(), '\\', '/');
+static void fixslashes(string& content) {
+  // Normalize slashes on the depfile contents before handing off to the parser
+  for (size_t i = 0; i < content.size() - 1; ++i) {
+    if (content[i] == '\\' && content[i + 1] != '\n')
+      content[i] = '/';
+  }
+}
+
+static void remove_quotes(DepfileParser& depfile) {
+  // Strip surrounding quotes off of each input file after it has been parsed
+  for (size_t i = 0; i < depfile.ins_.size(); ++i) {
+    if (depfile.ins_[i].str_[0] == '"') {
+      const char* str = depfile.ins_[i].str_;
+      const size_t len = depfile.ins_[i].len_;
+      if(str[len-1] != '"') {
+        EXPLAIN("Unpaired quotes on input: '%s' \n",
+            depfile.ins_[i].AsString().c_str());
+        continue;
+      }
+      // Modify string length and starting character to remove quotation marks
+      depfile.ins_[i] = StringPiece(str + 1, len - 2);
+    }
+  }
 }
 
 string FixupSNCDep(string content) {
@@ -400,10 +421,6 @@ string FixupSNCDep(string content) {
     string dep = lines[i].substr(lines[i].find(':') + 1);
     trim(dep);
     deps.push_back(dep);
-  }
-
-  for (uint32_t i = 0; i < deps.size(); ++i) {
-    fixslashes(deps[i]);
   }
 
   string gcc_format = output;
@@ -434,8 +451,12 @@ bool ImplicitDepLoader::LoadDepFile(Edge* edge, const string& path,
   if (content.empty())
     return false;
 
+  // Normalize slashes before parsing the depfile
   if (depformat == "snc") {
+    fixslashes(content);
     content = FixupSNCDep(content);
+  } else if (depformat == "uca") {
+    fixslashes(content);
   }
 
   DepfileParser depfile;
@@ -443,6 +464,10 @@ bool ImplicitDepLoader::LoadDepFile(Edge* edge, const string& path,
   if (!depfile.Parse(&content, &depfile_err)) {
     *err = path + ": " + depfile_err;
     return false;
+  }
+
+  if (depformat == "uca") {
+    remove_quotes(depfile);
   }
 
   // Check that this depfile matches the edge's output.
