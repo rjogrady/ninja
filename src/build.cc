@@ -491,9 +491,16 @@ void RealCommandRunner::Abort() {
 }
 
 bool RealCommandRunner::CanRunMore() {
-  return ((int)subprocs_.running_.size()) < config_.parallelism
+  bool can_run_more = ((int)subprocs_.running_.size()) < config_.parallelism
     && ((subprocs_.running_.empty() || config_.max_load_average <= 0.0f)
         || GetLoadAverage() < config_.max_load_average);
+
+#ifdef _WIN32
+    // Limit batch mode to the given parallelism.
+  can_run_more = can_run_more &&
+      (int)subprocs_.procs_to_batch_.size() < config_.parallelism;
+#endif
+  return can_run_more;
 }
 
 bool RealCommandRunner::StartCommand(Edge* edge) {

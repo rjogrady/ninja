@@ -862,6 +862,7 @@ int ReadFlags(int* argc, char*** argv,
     { NULL, 0, NULL, 0 }
   };
 
+  bool was_j_set = false;
   int opt;
   while (!options->tool &&
          (opt = getopt_long(*argc, *argv, "bd:f:j:k:l:nt:vC:h", kLongOptions,
@@ -880,6 +881,7 @@ int ReadFlags(int* argc, char*** argv,
         if (*end != 0 || value <= 0)
           Fatal("invalid -j parameter");
         config->parallelism = value;
+        was_j_set = true;
         break;
       }
       case 'k': {
@@ -931,6 +933,11 @@ int ReadFlags(int* argc, char*** argv,
   *argv += optind;
   *argc -= optind;
 
+  if (config->batch_mode && !was_j_set) {
+    // Allow an "unlimited" amount of parallelism if the user
+    // doesn't specify it.
+    config->parallelism = 10000;
+  }
   return -1;
 }
 
