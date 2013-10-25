@@ -44,7 +44,9 @@ string Replace(const string& input, const string& find, const string& replace) {
 
 string EscapeForDepfile(const string& path) {
   // Depfiles don't escape single \.
-  return Replace(path, " ", "\\ ");
+  string escaped = Replace(path, " ", "\\ ");
+  // rjogrady: Force forward slashes in the depfile.
+  return Replace(escaped, "\\", "/");
 }
 
 // static
