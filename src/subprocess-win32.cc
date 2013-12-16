@@ -230,7 +230,7 @@ void SubprocessSet::SetBatchMode(bool b) {
     } else {
       userName = "Unknown";
     }
-    batch_command_ = string("dbsrun dbsbuild -p ") +
+    batch_command_ = string("dbsrun dbsbuild -k -p ") +
         userName + string(" -s ");
   } else {
     batch_mode_ = false;
