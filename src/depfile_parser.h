@@ -26,7 +26,10 @@ struct DepfileParser {
   /// Parse an input file.  Input must be NUL-terminated.
   /// Warning: may mutate the content in-place and parsed StringPieces are
   /// pointers within it.
-  bool Parse(string* content, string* err);
+  bool Parse(string* content, string* err, const string& depformat);
+  // Strip any surrounding quotes off of
+  // each input file after it has been parsed.
+  void RemoveQuotes(string* err);
 
   StringPiece out_;
   vector<StringPiece> ins_;

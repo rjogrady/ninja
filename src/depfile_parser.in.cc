@@ -14,6 +14,59 @@
 
 #include "depfile_parser.h"
 
+#include <stdint.h>
+
+static void trim(string& s) {
+  s.erase(0, s.find_first_not_of(" \t\n\r"));
+  s.erase(s.find_last_not_of(" \t\n\r") + 1);
+}
+
+static void FixSlashes(string* content_ptr) {
+  string& content = *content_ptr;
+  // Normalize slashes on the depfile contents before handing off to the parser
+  for (size_t i = 0; i < content.size() - 1; ++i) {
+    if (content[i] == '\\' && content[i + 1] != '\n')
+      content[i] = '/';
+  }
+}
+
+static void FixupSNCDep(string* content_ptr) {
+  string& content = *content_ptr;
+  // Each dependency is on a separate line.
+  vector<string> lines;
+  char* line = strtok((char*)content.c_str(), "\n");
+  while (line) {
+    lines.push_back(line);
+    line = strtok(NULL, "\n");
+  }
+
+  size_t colon = lines[0].find(':');
+  string output = lines[0].substr(0, colon);
+  vector<string> deps;
+  deps.push_back(lines[0].substr(colon + 1));
+  trim(deps[0]);
+
+  for (uint32_t i = 1; i < lines.size(); ++i) {
+    string dep = lines[i].substr(lines[i].find(':') + 1);
+    trim(dep);
+    deps.push_back(dep);
+  }
+
+  string gcc_format = output;
+  gcc_format += ": \\\n";
+  for (uint32_t i = 0; i < deps.size(); ++i) {
+    gcc_format += deps[i];
+    if (i < deps.size() - 1) {
+      gcc_format += " \\\n";
+    }
+  }
+  gcc_format += "\n";
+  for (uint32_t i = 0; i < deps.size(); ++i) {
+    gcc_format += deps[i] + ":\n";
+  }
+  content = gcc_format;
+}
+
 // A note on backslashes in Makefiles, from reading the docs:
 // Backslash-newline is the line continuation character.
 // Backslash-# escapes a # (otherwise meaningful as a comment start).
@@ -28,7 +81,15 @@
 // otherwise they are passed through verbatim.
 // If anyone actually has depfiles that rely on the more complicated
 // behavior we can adjust this.
-bool DepfileParser::Parse(string* content, string* err) {
+bool DepfileParser::Parse(string* content, string* err, const string& depformat) {
+  // Normalize slashes before parsing the depfile
+  if (depformat == "snc") {
+    FixSlashes(content);
+    FixupSNCDep(content);
+  } else if (depformat == "uca") {
+    FixSlashes(content);
+  }
+
   // in: current parser input point.
   // end: end of input.
   // parsing_targets: whether we are parsing targets or dependencies.
@@ -112,5 +173,26 @@ bool DepfileParser::Parse(string* content, string* err) {
       return false;
     }
   }
+
+  if (depformat == "uca") {
+    RemoveQuotes(err);
+  }
   return true;
+}
+
+void DepfileParser::RemoveQuotes(string* err) {
+  for (size_t i = 0; i < ins_.size(); ++i) {
+    if (ins_[i].str_[0] == '"') {
+      const char* str = ins_[i].str_;
+      const size_t len = ins_[i].len_;
+      if(str[len-1] != '"') {
+        *err = "Unpaired quotes on input: '";
+        *err += ins_[i].AsString();
+        *err += "' \n";
+        continue;
+      }
+      // Modify string length and starting character to remove quotation marks
+      ins_[i] = StringPiece(str + 1, len - 2);
+    }
+  }
 }

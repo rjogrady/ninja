@@ -294,17 +294,13 @@ bool SubprocessSet::DoWork() {
 
   subproc->OnPipeReady();
 
+  RealDiskInterface rdi;
   if (subproc->Done()) {
     if (subproc == batch_process_) {
       ExitStatus err = batch_process_->Finish();
       set<int> successful_jobs;
-      string parsed_output;
-      batch_process_->ParseOutput(parsed_output, successful_jobs);
-      if (!parsed_output.empty()) {
-        // TODO: Use linewriter from BuildStatus here properly.
-        // Or something better.
-        printf("\n%s\n", subproc->buf_.c_str());
-      }
+      map<int, string> job_output;
+      batch_process_->ParseOutput(successful_jobs, job_output);
       const std::vector<Subprocess*>& children = batch_process_->GetChildren();
       for (uint32_t child = 0; child < children.size(); ++child) {
         Subprocess* c = children[child];
@@ -314,6 +310,7 @@ bool SubprocessSet::DoWork() {
         } else {
           c->override_status_ = err;
         }
+        c->buf_ = job_output[child];
         finished_.push(c);
       }
 
@@ -387,14 +384,24 @@ BatchSubprocess::BatchSubprocess(const vector<SubProc>& batch_procs) {
 
   // Write all the commands to a batch file and add these
   // subprocs to our internal list.
-  std::string script_contents;
+  string script_contents;
   for (uint32_t i = 0; i < batch_procs.size(); ++i) {
     const SubProc& sp = batch_procs[i];
-    script_contents += sp.second;
-    char tokenbuf[128];
-    _snprintf(tokenbuf, sizeof(tokenbuf), " && echo __batchitem__=%d\n", i);
-    // Add a token so we know which items complete successfully.
-    script_contents += tokenbuf;
+    char batch_id[128];
+    _snprintf(batch_id, sizeof(batch_id), "echo __batchitem__=%d\n", i);
+    char batch_complete[128];
+    _snprintf(batch_complete, sizeof(batch_complete),
+        " && echo __batchitem_complete__=%d\n", i);
+
+    // Each command is like:
+    // "echo __batchitem__=5"
+    // "cl.exe /c source0.c ... && echo __batchitem_complete__=5"
+    // This way we can parse a) the output for each job and
+    // b) the exit status for each job (the _complete string only echos
+    // on job success.)
+    script_contents += batch_id +
+        sp.second +
+        batch_complete;
     AppendChild(sp.first);
   }
 
@@ -412,26 +419,74 @@ const string& BatchSubprocess::GetCommand() const {
   return script_filename_;
 }
 
-void BatchSubprocess::ParseOutput(string& output, set<int>& successful_jobs) {
-  // Output is intermixed job output with __batchitem__=XXXX strings.
-  // Go through and remove all the __batchitem__ tokens to figure out
+void BatchSubprocess::ParseOutput(
+    set<int>& successful_jobs, map<int, string>& job_output) {
+  // Output is intermixed job output with __batchitem_complete__=XXXX strings.
+  // Go through and remove all the __batchitem_complete__ tokens to figure out
   // which jobs succeeded, and get the real output.
-  const string bi = "__batchitem__";
-  size_t loc = buf_.find(bi);
+
+  // Remember which pieces of buf_ we want to keep.
+  typedef vector<pair<size_t, size_t> > SizeRange;
+  SizeRange ranges_to_keep;
+
+  // By default keep the whole string.
+  ranges_to_keep.push_back(make_pair(0, buf_.length()));
+
+  const string complete_token = "__batchitem_complete__";
+
+  size_t loc = buf_.find(complete_token);
+  size_t start_pos = 0;
   while (loc != string::npos) {
-    size_t jobIdStart = loc + bi.length() + 1;
+    // Shorten the last element.
+    ranges_to_keep.back().second = loc;
+    size_t jobIdStart = loc + complete_token.length() + 1;
     int jobId = atoi(&buf_[jobIdStart]);
     successful_jobs.insert(jobId);
-    
-    size_t newline = jobIdStart;
-    while (buf_[newline] != '\n') {
-      ++newline;
-    }
-    
-    // Erase that entire token
-    buf_.erase(loc, newline - loc + 1);
+    start_pos = buf_.find_first_of('\n', jobIdStart) + 1;
+    ranges_to_keep.push_back(make_pair(start_pos, buf_.length()));
     // Get the next one.
-    loc = buf_.find(bi);
+    loc = buf_.find(complete_token, start_pos);
   }
-  output = buf_;
+
+  string stripped_buf;
+  stripped_buf.reserve(buf_.length());
+
+  // Copy everything from buf_ except for the completion tokens.
+  // This is much faster than erasing from buf_.
+  for (SizeRange::const_iterator it = ranges_to_keep.begin();
+       it != ranges_to_keep.end(); ++it) {
+    stripped_buf.append(buf_, it->first, it->second - it->first);
+  }
+  buf_ = stripped_buf;
+
+  // Now we just have the regular output, with a bunch of start
+  // tokens that indicate which job's output it is.
+  // Add each job's output to the job_output map,
+  // and remove it from the batch job's output.
+  const string start_token = "__batchitem__";
+  loc = buf_.find(start_token);
+
+  if (loc == string::npos) {
+    // Exit without modifying buf_. Something went wrong
+    // if no jobs were executed.
+    return;
+  }
+
+  while (loc != string::npos) {
+    size_t jobIdStart = loc + start_token.length() + 1;
+    int jobId = atoi(&buf_[jobIdStart]);
+
+    // Advance past this token.
+    start_pos = buf_.find_first_of('\n', jobIdStart) + 1;
+
+    // Find the next token, if any.
+    size_t next_loc = buf_.find(start_token, start_pos);
+
+    size_t output_len = next_loc - start_pos;
+    job_output[jobId] = buf_.substr(start_pos, output_len);
+    loc = next_loc;
+  }
+
+  // Extracted all the output.
+  buf_ = "";
 }

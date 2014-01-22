@@ -19,6 +19,7 @@
 #include <vector>
 #include <queue>
 #include <set>
+#include <map>
 using namespace std;
 
 #ifdef _WIN32
@@ -79,7 +80,11 @@ struct BatchSubprocess : public Subprocess {
   ~BatchSubprocess();
   const vector<Subprocess*>& GetChildren() const { return children_; }
   const string& GetCommand() const;
-  void ParseOutput(string& output, set<int>& successful_jobs);
+  // output is the combined output for all the jobs,
+  // with status tokens mixed in.
+  // ParseOutput extracts the list of successful jobs
+  // and the output for each job, modifying output.
+  void ParseOutput(set<int>& successful_jobs, map<int, string>& job_output);
 private:
   string script_filename_;
   void AppendChild(Subprocess* s) { children_.push_back(s); }

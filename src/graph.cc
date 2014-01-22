@@ -351,72 +351,6 @@ bool ImplicitDepLoader::LoadDeps(Edge* edge, string* err) {
   return true;
 }
 
-static void trim(string& s) {
-  s.erase(0, s.find_first_not_of(" \t\n\r"));
-  s.erase(s.find_last_not_of(" \t\n\r") + 1);
-}
-
-static void fixslashes(string& content) {
-  // Normalize slashes on the depfile contents before handing off to the parser
-  for (size_t i = 0; i < content.size() - 1; ++i) {
-    if (content[i] == '\\' && content[i + 1] != '\n')
-      content[i] = '/';
-  }
-}
-
-static void remove_quotes(DepfileParser& depfile) {
-  // Strip surrounding quotes off of each input file after it has been parsed
-  for (size_t i = 0; i < depfile.ins_.size(); ++i) {
-    if (depfile.ins_[i].str_[0] == '"') {
-      const char* str = depfile.ins_[i].str_;
-      const size_t len = depfile.ins_[i].len_;
-      if(str[len-1] != '"') {
-        EXPLAIN("Unpaired quotes on input: '%s' \n",
-            depfile.ins_[i].AsString().c_str());
-        continue;
-      }
-      // Modify string length and starting character to remove quotation marks
-      depfile.ins_[i] = StringPiece(str + 1, len - 2);
-    }
-  }
-}
-
-string FixupSNCDep(string content) {
-  // Each dependency is on a separate line.
-  vector<string> lines;
-  char* line = strtok((char*)content.c_str(), "\n");
-  while (line) {
-    lines.push_back(line);
-    line = strtok(NULL, "\n");
-  }
-
-  size_t colon = lines[0].find(':');
-  string output = lines[0].substr(0, colon);
-  vector<string> deps;
-  deps.push_back(lines[0].substr(colon + 1));
-  trim(deps[0]);
-
-  for (uint32_t i = 1; i < lines.size(); ++i) {
-    string dep = lines[i].substr(lines[i].find(':') + 1);
-    trim(dep);
-    deps.push_back(dep);
-  }
-
-  string gcc_format = output;
-  gcc_format += ": \\\n";
-  for (uint32_t i = 0; i < deps.size(); ++i) {
-    gcc_format += deps[i];
-    if (i < deps.size() - 1) {
-      gcc_format += " \\\n";
-    }
-  }
-  gcc_format += "\n";
-  for (uint32_t i = 0; i < deps.size(); ++i) {
-    gcc_format += deps[i] + ":\n";
-  }
-  return gcc_format;
-}
-
 bool ImplicitDepLoader::LoadDepFile(Edge* edge, const string& path,
                                     const string& depformat,
                                     string* err) {
@@ -432,23 +366,11 @@ bool ImplicitDepLoader::LoadDepFile(Edge* edge, const string& path,
     return false;
   }
 
-  // Normalize slashes before parsing the depfile
-  if (depformat == "snc") {
-    fixslashes(content);
-    content = FixupSNCDep(content);
-  } else if (depformat == "uca") {
-    fixslashes(content);
-  }
-
   DepfileParser depfile;
   string depfile_err;
-  if (!depfile.Parse(&content, &depfile_err)) {
+  if (!depfile.Parse(&content, &depfile_err, depformat)) {
     *err = path + ": " + depfile_err;
     return false;
-  }
-
-  if (depformat == "uca") {
-    remove_quotes(depfile);
   }
 
   // Check that this depfile matches the edge's output.

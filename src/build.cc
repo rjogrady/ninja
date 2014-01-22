@@ -828,6 +828,7 @@ bool Builder::ExtractDeps(CommandRunner::Result* result,
 #endif
   if (deps_type == "gcc") {
     string depfile = result->edge->GetBinding("depfile");
+    string depformat = result->edge->GetBinding("depformat");
     if (depfile.empty()) {
       *err = string("edge with deps=gcc but no depfile makes no sense");
       return false;
@@ -840,7 +841,7 @@ bool Builder::ExtractDeps(CommandRunner::Result* result,
       return true;
 
     DepfileParser deps;
-    if (!deps.Parse(&content, err))
+    if (!deps.Parse(&content, err, depformat))
       return false;
 
     // XXX check depfile matches expected output.

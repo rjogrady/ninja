@@ -1015,6 +1015,16 @@ int ReadFlags(int* argc, char*** argv,
   return -1;
 }
 
+#ifdef _MSC_VER
+void MergeEnvironment(const string& env_block) {
+  const char* as_str = env_block.c_str();
+  while (as_str[0]) {
+    _putenv(as_str);
+    as_str = &as_str[strlen(as_str) + 1];
+  }
+}
+#endif
+
 int real_main(int argc, char** argv) {
   BuildConfig config;
   Options options = {};
@@ -1046,6 +1056,16 @@ int real_main(int argc, char** argv) {
       Fatal("chdir to '%s' - %s", options.working_dir, strerror(errno));
     }
   }
+
+#ifdef _MSC_VER
+  // HACK: Avoid the need for -t msvc.  Just load the environment settings
+  // into the running instance of ninja.
+  string env;
+  string err;
+  if (ReadFile("environment.x64", &env, &err) == 0) {
+    MergeEnvironment(env);
+  }
+#endif
 
   // The build can take up to 2 passes: one to rebuild the manifest, then
   // another to build the desired target.
