@@ -230,7 +230,9 @@ void SubprocessSet::SetBatchMode(bool b) {
     } else {
       userName = "Unknown";
     }
-    batch_command_ = string("dbsrun dbsbuild -k -p ") +
+    // --no-job-object: Tell dbsrun not to wait for all child objects
+    // to terminate. Fixes hangs waiting for mspdbsrv.exe.
+    batch_command_ = string("dbsrun --no-job-object dbsbuild -k -p ") +
         userName + string(" -s ");
   } else {
     batch_mode_ = false;
