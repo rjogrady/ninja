@@ -210,12 +210,27 @@ SubprocessSet::~SubprocessSet() {
 }
 
 void SubprocessSet::SetBatchMode(bool b) {
+  // User requested batch mode.
+  // Set to false unless dbsrun is available and
+  // broker is available.
+  batch_mode_ = false;
   if (b) {
     // Try to detect if dbsrun is in the PATH.
-    DWORD searchRet = SearchPath(
-        NULL, "dbsrun.exe", NULL, 0, NULL, NULL);
+    DWORD searchRet = SearchPath(NULL, "dbsrun.exe", NULL, 0, NULL, NULL);
     if (searchRet == 0) {
-      batch_mode_ = false;
+      return;
+    }
+    searchRet = SearchPath(NULL, "dbsutil.exe", NULL, 0, NULL, NULL);
+    if (searchRet == 0) {
+      Warning("dbsrun.exe is in the PATH but dbsutil.exe is not.");
+      return;
+    }
+
+    // See if dbs agent is connected. dbsutil -l returns non-zero when
+    // not connected.
+    if (system("dbsutil.exe -l > NUL 2>&1") != 0) {
+      Warning("SN-DBS broker is not connected. Disabling batch mode.");
+      fflush(stderr);
       return;
     }
 
