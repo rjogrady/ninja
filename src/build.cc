@@ -470,7 +470,7 @@ struct RealCommandRunner : public CommandRunner {
 
 RealCommandRunner::RealCommandRunner(const BuildConfig& config)
   : config_(config) {
-  subprocs_.SetBatchMode(config.batch_mode);
+  subprocs_.SetBatchMode(config.batch_mode, config.failures_allowed);
 }
 
 vector<Edge*> RealCommandRunner::GetActiveEdges() {
@@ -492,7 +492,7 @@ bool RealCommandRunner::CanRunMore() {
 
 #ifdef _WIN32
     // Limit batch mode to the given parallelism.
-  can_run_more = can_run_more &&
+  can_run_more = can_run_more && (subprocs_.batch_process_ == NULL) &&
       (int)subprocs_.procs_to_batch_.size() < config_.parallelism;
 #endif
   return can_run_more;

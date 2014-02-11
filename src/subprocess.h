@@ -80,16 +80,25 @@ struct BatchSubprocess : public Subprocess {
   ~BatchSubprocess();
   const vector<Subprocess*>& GetChildren() const { return children_; }
   const string& GetCommand() const;
-  // output is the combined output for all the jobs,
-  // with status tokens mixed in.
-  // ParseOutput extracts the list of successful jobs
-  // and the output for each job, modifying output.
-  void ParseOutput(set<int>& successful_jobs, map<int, string>& job_output);
+  /// Parse output including information about which jobs
+  /// were successful.
+  void ParseOutput(bool process_complete);
 private:
-  string script_filename_;
+  /// Parse buf looking for all successful job tokens.
+  /// Return a string with all those tokens removed, and
+  /// update success_jobs_.
+  string ProcessSuccessJobs(const string& buf);
+  vector<Subprocess*> UpdateCompletedJobs(
+      ExitStatus exit_status, bool process_complete);
   void AppendChild(Subprocess* s) { children_.push_back(s); }
-  std::vector<Subprocess*> children_;
+  string script_filename_;
+  vector<Subprocess*> children_;
+  set<int> success_jobs_;
+  map<int, string> job_output_;
+  vector<int> completed_jobs_;
   friend struct SubprocessSet;
+
+  static string success_token_;
 
 };
 
@@ -108,7 +117,7 @@ struct SubprocessSet {
   queue<Subprocess*> finished_;
 #ifdef _WIN32
   /// Enable batching of jobs for submission to dbsrun.
-  void SetBatchMode(bool b);
+  void SetBatchMode(bool b, int failures_allowed);
   static BOOL WINAPI NotifyInterrupted(DWORD dwCtrlType);
   static HANDLE ioport_;
   vector<SubProc> procs_to_batch_;

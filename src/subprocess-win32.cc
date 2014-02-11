@@ -194,7 +194,7 @@ const string& Subprocess::GetOutput() const {
 
 HANDLE SubprocessSet::ioport_;
 
-SubprocessSet::SubprocessSet() : batch_mode_(false) {
+SubprocessSet::SubprocessSet() : batch_mode_(false), batch_process_(NULL) {
   ioport_ = ::CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
   if (!ioport_)
     Win32Fatal("CreateIoCompletionPort");
@@ -209,7 +209,7 @@ SubprocessSet::~SubprocessSet() {
   CloseHandle(ioport_);
 }
 
-void SubprocessSet::SetBatchMode(bool b) {
+void SubprocessSet::SetBatchMode(bool b, int failures_allowed) {
   // User requested batch mode.
   // Set to false unless dbsrun is available and
   // broker is available.
@@ -247,7 +247,11 @@ void SubprocessSet::SetBatchMode(bool b) {
     }
     // --no-job-object: Tell dbsrun not to wait for all child objects
     // to terminate. Fixes hangs waiting for mspdbsrv.exe.
-    batch_command_ = string("dbsrun --no-job-object dbsbuild -k -p ") +
+    // NOTE: if user has specified -k <anything>, pass -k to dbsbuild.
+    // Unfortunately we have no way to know if a job failed until we get the
+    // exit code from dbsrun.
+    string keep_going = failures_allowed > 1 ? "-k" : "";
+    batch_command_ = string("dbsrun --no-job-object dbsbuild ") + keep_going + string(" -p ") +
         userName + string(" -s ");
   } else {
     batch_mode_ = false;
@@ -311,26 +315,20 @@ bool SubprocessSet::DoWork() {
 
   subproc->OnPipeReady();
 
-  RealDiskInterface rdi;
   if (subproc->Done()) {
     if (subproc == batch_process_) {
       ExitStatus err = batch_process_->Finish();
-      set<int> successful_jobs;
-      map<int, string> job_output;
-      batch_process_->ParseOutput(successful_jobs, job_output);
-      const std::vector<Subprocess*>& children = batch_process_->GetChildren();
-      for (uint32_t child = 0; child < children.size(); ++child) {
-        Subprocess* c = children[child];
-        c->use_override_status_ = true;
-        if (successful_jobs.count(child) == 1) {
-          c->override_status_ = ExitSuccess;
-        } else {
-          c->override_status_ = err;
-        }
-        c->buf_ = job_output[child];
-        finished_.push(c);
+
+      batch_process_->ParseOutput(true /* process_complete */);
+      vector<Subprocess*> completed =
+          batch_process_->UpdateCompletedJobs(err, true /* process_complete */);
+      for (vector<Subprocess*>::const_iterator it = completed.begin();
+           it != completed.end();
+           ++it) {
+        finished_.push(*it);
       }
 
+      // Remove the batch_process_ from the list of running jobs.
       vector<Subprocess*>::iterator end =
           std::remove(running_.begin(), running_.end(), batch_process_);
       if (running_.end() != end) {
@@ -346,8 +344,25 @@ bool SubprocessSet::DoWork() {
         running_.resize(end - running_.begin());
       }
     }
+  } else {
+    // Process is still running.
+    if (subproc == batch_process_) {
+      // Update any partial output.
+      batch_process_->ParseOutput(false /* process_complete */);
+      // If any jobs have reported success and we have
+      // their output, add them to the finished queue.
+      // For other jobs, we won't know their status until the
+      // whole batch is finished.
+      vector<Subprocess*> completed =
+          batch_process_->UpdateCompletedJobs(
+              (ExitStatus)-1, false /* process_complete */);
+      for (vector<Subprocess*>::const_iterator it = completed.begin();
+           it != completed.end();
+           ++it) {
+        finished_.push(*it);
+      }
+    }
   }
-
   return false;
 }
 
@@ -392,6 +407,8 @@ static string GetTempFileName() {
   return temp_file;
 }
 
+string BatchSubprocess::success_token_ = string("__batchitem_success__");
+
 BatchSubprocess::BatchSubprocess(const vector<SubProc>& batch_procs) {
   script_filename_= GetTempFileName();
   if (script_filename_.empty()) {
@@ -406,19 +423,19 @@ BatchSubprocess::BatchSubprocess(const vector<SubProc>& batch_procs) {
     const SubProc& sp = batch_procs[i];
     char batch_id[128];
     _snprintf(batch_id, sizeof(batch_id), "echo __batchitem__=%d\n", i);
-    char batch_complete[128];
-    _snprintf(batch_complete, sizeof(batch_complete),
-        " && echo __batchitem_complete__=%d\n", i);
+    char batch_success[128];
+    _snprintf(batch_success, sizeof(batch_success),
+        " && echo %s=%d\n", success_token_.c_str(), i);
 
     // Each command is like:
     // "echo __batchitem__=5"
-    // "cl.exe /c source0.c ... && echo __batchitem_complete__=5"
+    // "cl.exe /c source0.c ... || echo __batchitem_success__=5"
     // This way we can parse a) the output for each job and
     // b) the exit status for each job (the _complete string only echos
     // on job success.)
     script_contents += batch_id +
         sp.second +
-        batch_complete;
+        batch_success;
     AppendChild(sp.first);
   }
 
@@ -436,10 +453,9 @@ const string& BatchSubprocess::GetCommand() const {
   return script_filename_;
 }
 
-void BatchSubprocess::ParseOutput(
-    set<int>& successful_jobs, map<int, string>& job_output) {
-  // Output is intermixed job output with __batchitem_complete__=XXXX strings.
-  // Go through and remove all the __batchitem_complete__ tokens to figure out
+string BatchSubprocess::ProcessSuccessJobs(const string& buf) {
+  // Output is intermixed job output with __batchitem_success__=XXXX strings.
+  // Go through and remove all the __batchitem_success__ tokens to figure out
   // which jobs succeeded, and get the real output.
 
   // Remember which pieces of buf_ we want to keep.
@@ -447,63 +463,106 @@ void BatchSubprocess::ParseOutput(
   SizeRange ranges_to_keep;
 
   // By default keep the whole string.
-  ranges_to_keep.push_back(make_pair(0, buf_.length()));
+  ranges_to_keep.push_back(make_pair(0, buf.length()));
 
-  const string complete_token = "__batchitem_complete__";
-
-  size_t loc = buf_.find(complete_token);
+  size_t loc = buf.find(success_token_);
   size_t start_pos = 0;
   while (loc != string::npos) {
     // Shorten the last element.
     ranges_to_keep.back().second = loc;
-    size_t jobIdStart = loc + complete_token.length() + 1;
-    int jobId = atoi(&buf_[jobIdStart]);
-    successful_jobs.insert(jobId);
-    start_pos = buf_.find_first_of('\n', jobIdStart) + 1;
+    size_t jobIdStart = loc + success_token_.length() + 1;
+    int jobId = atoi(&buf[jobIdStart]);
+    success_jobs_.insert(jobId);
+    start_pos = buf.find_first_of('\n', jobIdStart) + 1;
     ranges_to_keep.push_back(make_pair(start_pos, buf_.length()));
     // Get the next one.
-    loc = buf_.find(complete_token, start_pos);
+    loc = buf.find(success_token_, start_pos);
   }
 
   string stripped_buf;
-  stripped_buf.reserve(buf_.length());
+  stripped_buf.reserve(buf.length());
 
-  // Copy everything from buf_ except for the completion tokens.
-  // This is much faster than erasing from buf_.
+  // Copy everything from buf except for the completion tokens.
+  // This is much faster than erasing from buf.
   for (SizeRange::const_iterator it = ranges_to_keep.begin();
        it != ranges_to_keep.end(); ++it) {
-    stripped_buf.append(buf_, it->first, it->second - it->first);
+    stripped_buf.append(buf, it->first, it->second - it->first);
   }
-  buf_ = stripped_buf;
+  return stripped_buf;
+}
+
+void BatchSubprocess::ParseOutput(bool output_complete) {
+  buf_ = ProcessSuccessJobs(buf_);
 
   // Now we just have the regular output, with a bunch of start
   // tokens that indicate which job's output it is.
   // Add each job's output to the job_output map,
   // and remove it from the batch job's output.
-  const string start_token = "__batchitem__";
-  loc = buf_.find(start_token);
+  vector<int> completed_jobs;
 
-  if (loc == string::npos) {
-    // Exit without modifying buf_. Something went wrong
-    // if no jobs were executed.
-    return;
-  }
+  const string start_token = "__batchitem__";
+  size_t loc = buf_.find(start_token);
 
   while (loc != string::npos) {
     size_t jobIdStart = loc + start_token.length() + 1;
     int jobId = atoi(&buf_[jobIdStart]);
 
     // Advance past this token.
-    start_pos = buf_.find_first_of('\n', jobIdStart) + 1;
+    size_t start_pos = buf_.find_first_of('\n', jobIdStart) + 1;
 
     // Find the next token, if any.
     size_t next_loc = buf_.find(start_token, start_pos);
+    if (output_complete == false) {
+      if (next_loc == string::npos) {
+        // This job is still in progress. Stop extracting output.
+        break;
+      }
+    }
 
     size_t output_len = next_loc - start_pos;
-    job_output[jobId] = buf_.substr(start_pos, output_len);
-    loc = next_loc;
-  }
+    job_output_[jobId] = buf_.substr(start_pos, output_len);
+    size_t output_len_incl_token = next_loc - loc;
+    buf_.erase(loc, output_len_incl_token);
 
-  // Extracted all the output.
-  buf_ = "";
+    loc = buf_.find(start_token);
+    completed_jobs_.push_back(jobId);
+  }
+}
+
+vector<Subprocess*> BatchSubprocess::UpdateCompletedJobs(
+  ExitStatus exit_status, bool process_complete) {
+
+  // Update exit status and output for all children that have completed.
+  // If process is still running, only update those we know were
+  // successful.
+  // Return a vector of Subprocesses that are finished.
+  ExitStatus child_status = process_complete ? exit_status : ExitSuccess;
+  const std::set<int>& success_jobs = success_jobs_;
+  vector<Subprocess*> completed;
+  for (vector<int>::const_iterator it = completed_jobs_.begin();
+       it != completed_jobs_.end();
+       ++it) {
+    const int child = *it;
+    if (process_complete || success_jobs.count(child) == 1) {
+      Subprocess* c = children_[child];
+      c->use_override_status_ = true;
+      c->override_status_ = child_status;
+      c->buf_ = job_output_[child];
+      completed.push_back(c);
+    }
+  }
+  if (process_complete) {
+    completed_jobs_.clear();
+  } else {
+    // Remove all succeeded jobs from the completed_jobs_ list.
+    vector<int>::iterator remove_it = remove_if(
+        completed_jobs_.begin(),
+        completed_jobs_.end(),
+        [success_jobs](int jobId) {
+          return success_jobs.count(jobId) == 1;
+        }
+      );
+    completed_jobs_.erase(remove_it, completed_jobs_.end());
+  }
+  return completed;
 }
