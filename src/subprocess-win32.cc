@@ -270,7 +270,7 @@ BOOL WINAPI SubprocessSet::NotifyInterrupted(DWORD dwCtrlType) {
 
 Subprocess *SubprocessSet::Add(const string& command) {
   Subprocess *subprocess = new Subprocess;
-  if (batch_mode_) {
+  if (batch_mode_ && batch_process_ == NULL) {
     procs_to_batch_.push_back(SubProc(subprocess, command));
   } else {
     if (!subprocess->Start(this, command)) {

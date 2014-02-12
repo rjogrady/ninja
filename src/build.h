@@ -134,6 +134,7 @@ struct BuildConfig {
   Verbosity verbosity;
   bool dry_run;
   int parallelism;
+  int batch_parallelism;
   int failures_allowed;
   /// The maximum load average we must not exceed. A negative value
   /// means that we do not have any limit.

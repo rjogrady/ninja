@@ -492,8 +492,8 @@ bool RealCommandRunner::CanRunMore() {
 
 #ifdef _WIN32
     // Limit batch mode to the given parallelism.
-  can_run_more = can_run_more && (subprocs_.batch_process_ == NULL) &&
-      (int)subprocs_.procs_to_batch_.size() < config_.parallelism;
+  can_run_more = can_run_more &&
+      (int)subprocs_.procs_to_batch_.size() < config_.batch_parallelism;
 #endif
   return can_run_more;
 }

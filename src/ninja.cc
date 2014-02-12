@@ -927,7 +927,9 @@ int ExceptionFilter(unsigned int code, struct _EXCEPTION_POINTERS *ep) {
 /// Returns an exit code, or -1 if Ninja should continue.
 int ReadFlags(int* argc, char*** argv,
               Options* options, BuildConfig* config) {
-  config->parallelism = GuessParallelism();
+  const int default_parallelism = GuessParallelism();
+  config->parallelism = default_parallelism;
+  config->batch_parallelism = 10000;
 
   enum { OPT_VERSION = 1 };
   const option kLongOptions[] = {
@@ -1007,10 +1009,15 @@ int ReadFlags(int* argc, char*** argv,
   *argv += optind;
   *argc -= optind;
 
-  if (config->batch_mode && !was_j_set) {
-    // Allow an "unlimited" amount of parallelism if the user
-    // doesn't specify it.
-    config->parallelism = 10000;
+  if (config->batch_mode) {
+    // When running in batch mode, limit the # of jobs
+    // per batch to the specific -j parameter.
+    if (was_j_set) {
+      config->batch_parallelism = config->parallelism;
+    }
+    // Set # of parallel jobs to the default / 2,
+    // reduced since the batch job will also be running things locally.
+    config->parallelism = max(1, default_parallelism / 2);
   }
   return -1;
 }
