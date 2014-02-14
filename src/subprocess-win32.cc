@@ -18,6 +18,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <numeric>
 
 #include "util.h"
 
@@ -498,7 +499,6 @@ void BatchSubprocess::ParseOutput(bool output_complete) {
   // tokens that indicate which job's output it is.
   // Add each job's output to the job_output map,
   // and remove it from the batch job's output.
-  vector<int> completed_jobs;
 
   const string start_token = "__batchitem__";
   size_t loc = buf_.find(start_token);
@@ -526,6 +526,36 @@ void BatchSubprocess::ParseOutput(bool output_complete) {
 
     loc = buf_.find(start_token);
     completed_jobs_.push_back(jobId);
+  }
+
+  if (output_complete && job_output_.size() != children_.size()) {
+    // The batch process has finished.
+    // We may not have received start_tokens for every job,
+    // e.g. if the batch aborted.
+    // For all our children that we have no info for,
+    // put them into completed_jobs_ with empty output
+    // so they can be processed as finished.
+    vector<int> all_jobs;
+    all_jobs.resize(children_.size());
+    iota(all_jobs.begin(), all_jobs.end(), 0);
+    // All jobs that have completed have a key in job_output_.
+    vector<int> known_jobs;
+    for (map<int, string>::const_iterator it = job_output_.begin();
+        it != job_output_.end(); ++it) {
+      known_jobs.push_back(it->first);
+    }
+    vector<int> outstanding_jobs;
+    outstanding_jobs.resize(all_jobs.size());
+    vector<int>::const_iterator outstanding_end_it = set_difference(
+        all_jobs.begin(), all_jobs.end(),
+        known_jobs.begin(), known_jobs.end(), outstanding_jobs.begin());
+
+    for (vector<int>::const_iterator it = outstanding_jobs.begin();
+        it != outstanding_end_it; ++it) {
+      const int jobId = *it;
+      job_output_[jobId] = "";
+      completed_jobs_.push_back(jobId);
+    }
   }
 }
 
