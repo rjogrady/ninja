@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <algorithm>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <algorithm>
+#include <map>
+#include <stack>
+#include <sstream>
+#include <vector>
 
 #ifdef _WIN32
 #include "getopt.h"
@@ -354,53 +359,78 @@ int NinjaMain::ToolQuery(int argc, char* argv[]) {
   return 0;
 }
 
-void PrintNodePath(const vector<Node*>& node_path) {
-  if(node_path.empty()) {
-    return;
+void PrintNodePath(const map<Node*,Node*>& parent_map, Node* child) {
+  stack<Node*> reverse_path;
+  Node* node = child;
+  while (node != NULL) {
+    reverse_path.push(node);
+    node = parent_map.at(node);
   }
 
-  vector<Node*>::const_iterator it = node_path.begin();
-  printf("Path: %s\n", (*it)->path().c_str());
-  while (++it != node_path.end()) {
-    printf("    > %s\n", (*it)->path().c_str());
+  printf("Path: %s\n", reverse_path.top()->path().c_str());
+  reverse_path.pop();
+  while (!reverse_path.empty()) {
+    printf("    > %s\n", reverse_path.top()->path().c_str());
+    reverse_path.pop();
   }
   printf("\n");
 }
 
-void SearchDepthFirst(vector<Node*>* accumulated_nodes,
-                      const vector<Node*>& targets,
-                      int* results_left) {
-  if (accumulated_nodes->size() >  64 || *results_left <= 0) {
-    // Too deep in the stack, abort to avoid infinite recursion.
-    return;
-  }
+void SearchBreadthFirst(Node* start, const vector<Node*>& targets) {
+  queue<Node*> queue;
+  map<Node*,Node*> parent_map;
+  queue.push(start);
+  parent_map.insert(make_pair<Node*,Node*>(start, NULL));
 
-  Node* last = accumulated_nodes->back();
-  Edge* in_edge = last->in_edge();
-
-  if (in_edge == NULL || in_edge->inputs_.empty()) {
-    return;
-  }
-
-  for (vector<Node*>::const_iterator it = in_edge->inputs_.begin();
-      it != in_edge->inputs_.end(); ++it) {
-    accumulated_nodes->push_back(*it);
-    if (find(targets.begin(), targets.end(), *it) != targets.end()) {
-      PrintNodePath(*accumulated_nodes);
-      (*results_left)--;
-    }
-    if (*results_left <= 0) {
+  while (!queue.empty()) {
+    Node* node = queue.front();
+    queue.pop();
+    if (node !=start &&
+        find(targets.begin(), targets.end(), node) != targets.end()) {
+      PrintNodePath(parent_map, node);
       return;
     }
-    SearchDepthFirst(accumulated_nodes, targets, results_left);
-    accumulated_nodes->pop_back();
+    if (Edge* edge = node->in_edge()) {
+      for (std::vector<Node*>::const_iterator it = edge->inputs_.begin();
+          it != edge->inputs_.end(); ++it) {
+        pair<map<Node*, Node*>::iterator, bool> result =
+            parent_map.insert(make_pair(*it, node));
+        if (result.second) {
+          // Only add to queue if this is a new node.
+          queue.push(*it);
+        }
+      }
+    }
   }
-  return;
+}
+
+vector<Node*> ExpandIfPhony(Node* node) {
+  vector<Node*> expansion;
+
+  Edge* edge = node->in_edge();
+  if (!edge || !edge->is_phony()) {
+    expansion.push_back(node);
+    return expansion;
+  }
+
+  if (edge->inputs_.empty()) {
+    Error("[To] target is phony, but does not have any dependencies.");
+    return expansion;
+  }
+
+  printf("Expanding phony target: %s to [", node->path().c_str());
+  for (vector<Node*>::const_iterator it = edge->inputs_.begin();
+      it != edge->inputs_.end(); ++it) {
+    printf("%s,", (*it)->path().c_str());
+    expansion.push_back(*it);
+  }
+  printf("\b]\n");
+  return expansion;
 }
 
 int NinjaMain::ToolFindDependency(int argc, char* argv[]) {
-  if (argc < 2) {
-    Error("expected 2 targets to find dependency");
+  if (argc != 2) {
+    Error("please list 2 targets [from, to] to find the dependency.");
     return 1;
   }
 
@@ -411,39 +441,24 @@ int NinjaMain::ToolFindDependency(int argc, char* argv[]) {
     return 1;
   }
 
-  // Resolve phony targets:
-  for (vector<Node*>::iterator it = targets.begin(); it != targets.end(); ++it) {
-    Edge* edge = (*it)->in_edge();
-    if (edge && edge->is_phony()) {
-      // Remove the target and instead add it's dependencies.
-      printf("Removing phony target: %s", (*it)->path().c_str());
-      it = targets.erase(it);
-
-      if (edge->inputs_.empty()) {
-        printf(" and not adding any targets.");
-      } else {
-        printf(" and adding targets:");
-        for (vector<Node*>::const_iterator input_it = edge->inputs_.begin();
-            input_it != edge->inputs_.end(); ++input_it) {
-          printf(" %s,", (*input_it)->path().c_str());
-          it = targets.insert(it, *input_it);
-        }
-      }
-      printf("\n");
-    }
+  if (targets.size() != 2) {
+    Error("please list 2 valid targets [from, to] to find the dependency.");
+    return 1;
   }
 
-  if (targets.size() < 2) {
+  Node* from = targets.at(0);
+  Node* to = targets.at(1);
+
+  // For the first target (from), a phony is fine since it will expand its deps.
+  // However, the 2nd target (to) might not be directly referenced in the tree,
+  // and so will need expansion.
+  targets = ExpandIfPhony(to);
+  if (targets.empty()) {
     Error("Not enough targets found to calculate dependency graph.");
     return 1;
   }
 
-  for (vector<Node*>::const_iterator it = targets.begin(); it != targets.end(); ++it) {
-    std::vector<Node*> accumulated_nodes;
-    accumulated_nodes.push_back(*it);
-    int max_results = 5;
-    SearchDepthFirst(&accumulated_nodes, targets, &max_results);
-  }
+  SearchBreadthFirst(from, targets);
   return 0;
 }
 
