@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
@@ -104,6 +105,7 @@ struct NinjaMain {
   // The various subcommands, run via "-t XXX".
   int ToolGraph(int argc, char* argv[]);
   int ToolQuery(int argc, char* argv[]);
+  int ToolFindDependency(int argc, char* argv[]);
   int ToolDeps(int argc, char* argv[]);
   int ToolBrowse(int argc, char* argv[]);
   int ToolMSVC(int argc, char* argv[]);
@@ -348,6 +350,99 @@ int NinjaMain::ToolQuery(int argc, char* argv[]) {
         printf("    %s\n", (*out)->path().c_str());
       }
     }
+  }
+  return 0;
+}
+
+void PrintNodePath(const vector<Node*>& node_path) {
+  if(node_path.empty()) {
+    return;
+  }
+
+  vector<Node*>::const_iterator it = node_path.begin();
+  printf("Path: %s\n", (*it)->path().c_str());
+  while (++it != node_path.end()) {
+    printf("    > %s\n", (*it)->path().c_str());
+  }
+  printf("\n");
+}
+
+void SearchDepthFirst(vector<Node*>* accumulated_nodes,
+                      const vector<Node*>& targets,
+                      int* results_left) {
+  if (accumulated_nodes->size() >  64 || *results_left <= 0) {
+    // Too deep in the stack, abort to avoid infinite recursion.
+    return;
+  }
+
+  Node* last = accumulated_nodes->back();
+  Edge* in_edge = last->in_edge();
+
+  if (in_edge == NULL || in_edge->inputs_.empty()) {
+    return;
+  }
+
+  for (vector<Node*>::const_iterator it = in_edge->inputs_.begin();
+      it != in_edge->inputs_.end(); ++it) {
+    accumulated_nodes->push_back(*it);
+    if (find(targets.begin(), targets.end(), *it) != targets.end()) {
+      PrintNodePath(*accumulated_nodes);
+      (*results_left)--;
+    }
+    if (*results_left <= 0) {
+      return;
+    }
+    SearchDepthFirst(accumulated_nodes, targets, results_left);
+    accumulated_nodes->pop_back();
+  }
+  return;
+}
+
+int NinjaMain::ToolFindDependency(int argc, char* argv[]) {
+  if (argc < 2) {
+    Error("expected 2 targets to find dependency");
+    return 1;
+  }
+
+  string err;
+  vector<Node*> targets;
+  if (!CollectTargetsFromArgs(argc, argv, &targets, &err)) {
+    Error("%s", err.c_str());
+    return 1;
+  }
+
+  // Resolve phony targets:
+  for (vector<Node*>::iterator it = targets.begin(); it != targets.end(); ++it) {
+    Edge* edge = (*it)->in_edge();
+    if (edge && edge->is_phony()) {
+      // Remove the target and instead add it's dependencies.
+      printf("Removing phony target: %s", (*it)->path().c_str());
+      it = targets.erase(it);
+
+      if (edge->inputs_.empty()) {
+        printf(" and not adding any targets.");
+      } else {
+        printf(" and adding targets:");
+        for (vector<Node*>::const_iterator input_it = edge->inputs_.begin();
+            input_it != edge->inputs_.end(); ++input_it) {
+          printf(" %s,", (*input_it)->path().c_str());
+          it = targets.insert(it, *input_it);
+        }
+      }
+      printf("\n");
+    }
+  }
+
+  if (targets.size() < 2) {
+    Error("Not enough targets found to calculate dependency graph.");
+    return 1;
+  }
+
+  for (vector<Node*>::const_iterator it = targets.begin(); it != targets.end(); ++it) {
+    std::vector<Node*> accumulated_nodes;
+    accumulated_nodes.push_back(*it);
+    int max_results = 5;
+    SearchDepthFirst(&accumulated_nodes, targets, &max_results);
   }
   return 0;
 }
@@ -703,6 +798,8 @@ const Tool* ChooseTool(const string& tool_name) {
       Tool::RUN_AFTER_LOAD, &NinjaMain::ToolGraph },
     { "query", "show inputs/outputs for a path",
       Tool::RUN_AFTER_LOGS, &NinjaMain::ToolQuery },
+    { "finddeps", "show the dependency path from one node to another.",
+      Tool::RUN_AFTER_LOAD, &NinjaMain::ToolFindDependency },
     { "targets",  "list targets by their rule or depth in the DAG",
       Tool::RUN_AFTER_LOAD, &NinjaMain::ToolTargets },
     { "compdb",  "dump JSON compilation database to stdout",
