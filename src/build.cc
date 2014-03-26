@@ -470,7 +470,7 @@ struct RealCommandRunner : public CommandRunner {
 
 RealCommandRunner::RealCommandRunner(const BuildConfig& config)
   : config_(config) {
-  subprocs_.SetBatchMode(config.batch_mode, config.failures_allowed);
+  subprocs_.SetBatchMode(config.failures_allowed);
 }
 
 vector<Edge*> RealCommandRunner::GetActiveEdges() {
