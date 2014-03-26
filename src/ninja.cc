@@ -18,12 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <algorithm>
-#include <map>
-#include <stack>
-#include <sstream>
-#include <vector>
-
 #ifdef _WIN32
 #include "getopt.h"
 #include <direct.h>
@@ -32,6 +26,11 @@
 #include <getopt.h>
 #include <unistd.h>
 #endif
+
+#include <algorithm>
+#include <map>
+#include <stack>
+#include <vector>
 
 #include "browse.h"
 #include "build.h"
