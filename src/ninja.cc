@@ -1182,6 +1182,8 @@ int real_main(int argc, char** argv) {
   string err;
   if (ReadFile("environment.x64", &env, &err) == 0) {
     MergeEnvironment(env);
+  } else if (ReadFile("environment.x86", &env, &err) == 0) {
+    MergeEnvironment(env);
   }
 #endif
 
