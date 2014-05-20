@@ -42,6 +42,20 @@ TEST(CLParserTest, FilterInputFilename) {
                    "of file found ..."));
 }
 
+TEST(CLParserTest, FilterWarnings) {
+  vector<string> empty;
+  vector<string> d9002;
+  d9002.push_back("D9002");
+
+  ASSERT_EQ(false, CLParser::FilterWarnings(empty, ""));
+
+  ASSERT_EQ(false, CLParser::FilterWarnings(empty, "Sample compiler output"));
+  ASSERT_EQ(true,
+            CLParser::FilterWarnings(d9002, "Command line warning D9002"));
+  ASSERT_EQ(false,
+            CLParser::FilterWarnings(d9002, "Command line warning C4901"));
+}
+
 TEST(CLParserTest, ParseSimple) {
   CLParser parser;
   string output = parser.Parse(

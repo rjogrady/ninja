@@ -66,6 +66,19 @@ string CLParser::FilterShowIncludes(const string& line) {
 }
 
 // static
+bool CLParser::FilterWarnings(
+    const vector<string>& warnings, const string& line) {
+  for (vector<string>::const_iterator it = warnings.begin();
+       it != warnings.end(); ++it) {
+    if (line.find(*it) != string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+// static
 bool CLParser::IsSystemInclude(string path) {
   transform(path.begin(), path.end(), path.begin(), ::tolower);
   // TODO: this is a heuristic, perhaps there's a better way?
@@ -86,6 +99,11 @@ bool CLParser::FilterInputFilename(string line) {
 string CLParser::Parse(const string& output) {
   string filtered_output;
 
+  // HACK: Discard warnings D9002. "unknown option /errorReport:prompt"
+  // Building with SN-DBS seems to cause this on some compilers.
+  vector<string> ignored_warnings;
+  ignored_warnings.push_back("D9002");
+
   // Loop over all lines in the output to process them.
   size_t start = 0;
   while (start < output.size()) {
@@ -103,6 +121,8 @@ string CLParser::Parse(const string& output) {
       // Drop it.
       // TODO: if we support compiling multiple output files in a single
       // cl.exe invocation, we should stash the filename.
+    } else if (FilterWarnings(ignored_warnings, line)) {
+      // Drop it.
     } else {
       filtered_output.append(line);
       filtered_output.append("\n");

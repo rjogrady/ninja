@@ -17,22 +17,23 @@
 #include <gtest/gtest.h>
 
 struct DepfileParserTest : public testing::Test {
-  bool Parse(const char* input, string* err);
+  bool Parse(const char* input, string* err, const string& format);
 
   DepfileParser parser_;
   string input_;
 };
 
-bool DepfileParserTest::Parse(const char* input, string* err) {
+bool DepfileParserTest::Parse(
+    const char* input, string* err, const string& format) {
   input_ = input;
-  return parser_.Parse(&input_, err);
+  return parser_.Parse(&input_, err, format);
 }
 
 TEST_F(DepfileParserTest, Basic) {
   string err;
   EXPECT_TRUE(Parse(
 "build/ninja.o: ninja.cc ninja.h eval_env.h manifest_parser.h\n",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("build/ninja.o", parser_.out_.AsString());
   EXPECT_EQ(4u, parser_.ins_.size());
@@ -43,7 +44,7 @@ TEST_F(DepfileParserTest, EarlyNewlineAndWhitespace) {
   EXPECT_TRUE(Parse(
 " \\\n"
 "  out: in\n",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
 }
 
@@ -52,7 +53,7 @@ TEST_F(DepfileParserTest, Continuation) {
   EXPECT_TRUE(Parse(
 "foo.o: \\\n"
 "  bar.h baz.h\n",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("foo.o", parser_.out_.AsString());
   EXPECT_EQ(2u, parser_.ins_.size());
@@ -66,7 +67,7 @@ TEST_F(DepfileParserTest, BackSlashes) {
 "  Dir\\Library\\Version\\Bar.h \\\n"
 "  Dir\\Library\\Foo.ico \\\n"
 "  Project\\Thing\\Bar.tlb \\\n",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("Project\\Dir\\Build\\Release8\\Foo\\Foo.res",
             parser_.out_.AsString());
@@ -77,7 +78,7 @@ TEST_F(DepfileParserTest, Spaces) {
   string err;
   EXPECT_TRUE(Parse(
 "a\\ bc\\ def:   a\\ b c d",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("a bc def",
             parser_.out_.AsString());
@@ -96,7 +97,7 @@ TEST_F(DepfileParserTest, Escapes) {
   string err;
   EXPECT_TRUE(Parse(
 "\\!\\@\\#$$\\%\\^\\&\\\\",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("\\!\\@#$\\%\\^\\&\\",
             parser_.out_.AsString());
@@ -110,7 +111,7 @@ TEST_F(DepfileParserTest, SpecialChars) {
   EXPECT_TRUE(Parse(
 "C:/Program\\ Files\\ (x86)/Microsoft\\ crtdefs.h: \n"
 " en@quot.header~ t+t-x!=1",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("C:/Program Files (x86)/Microsoft crtdefs.h",
             parser_.out_.AsString());
@@ -124,7 +125,7 @@ TEST_F(DepfileParserTest, SpecialChars) {
 TEST_F(DepfileParserTest, UnifyMultipleOutputs) {
   // check that multiple duplicate targets are properly unified
   string err;
-  EXPECT_TRUE(Parse("foo foo: x y z", &err));
+  EXPECT_TRUE(Parse("foo foo: x y z", &err, ""));
   ASSERT_EQ(parser_.out_.AsString(), "foo");
   ASSERT_EQ(parser_.ins_.size(), 3u);
   EXPECT_EQ("x", parser_.ins_[0].AsString());
@@ -135,7 +136,7 @@ TEST_F(DepfileParserTest, UnifyMultipleOutputs) {
 TEST_F(DepfileParserTest, RejectMultipleDifferentOutputs) {
   // check that multiple different outputs are rejected by the parser
   string err;
-  EXPECT_FALSE(Parse("foo bar: x y z", &err));
+  EXPECT_FALSE(Parse("foo bar: x y z", &err, ""));
 }
 
 extern string FixupSNCDep(string);
@@ -146,8 +147,7 @@ TEST_F(DepfileParserTest, ParseSNCDeps) {
 "obj/foo/bar/output.o: ../../../foo/bar/input0.cc\n"
 "obj/foo/bar/output.o: ../../../foo/bar/input0.h\n"
 "obj/foo/bar/output.o: ../../../foo/bar/input1.h \n";
-  string gcc_dep = FixupSNCDep(snc_dep);
   string err;
-  EXPECT_TRUE(Parse(gcc_dep.c_str(), &err));
+  EXPECT_TRUE(Parse(snc_dep.c_str(), &err, "snc"));
   ASSERT_EQ(parser_.out_.AsString(), "obj/foo/bar/output.o");
 }

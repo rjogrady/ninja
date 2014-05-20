@@ -29,6 +29,11 @@ struct CLParser {
   /// Exposed for testing.
   static string FilterShowIncludes(const string& line);
 
+  // Parse a line of cl.exe output and exclude warnings we don't want.
+  // Return true if any warnings match and line should be discarded.
+  static bool FilterWarnings(
+      const vector<string>& warnings, const string& line);
+
   /// Return true if a mentioned include file is a system path.
   /// Filtering these out reduces dependency information considerably.
   static bool IsSystemInclude(string path);

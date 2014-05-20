@@ -379,7 +379,7 @@ void SearchBreadthFirst(Node* start, const vector<Node*>& targets) {
   queue<Node*> queue;
   map<Node*,Node*> parent_map;
   queue.push(start);
-  parent_map.insert(make_pair<Node*,Node*>(start, NULL));
+  parent_map.insert(make_pair(start, (Node*)NULL));
 
   while (!queue.empty()) {
     Node* node = queue.front();

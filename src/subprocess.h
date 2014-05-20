@@ -126,7 +126,7 @@ struct SubprocessSet {
   string batch_command_;
 #else
   // No-op on POSIX
-  void SetBatchMode(bool b) {}
+  void SetBatchMode(bool b, int failures_allowed) {}
   static void SetInterruptedFlag(int signum);
   static bool interrupted_;
 
