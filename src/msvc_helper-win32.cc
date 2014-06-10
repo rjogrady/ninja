@@ -19,6 +19,7 @@
 #include <string.h>
 #include <windows.h>
 
+#include "debug_flags.h"
 #include "includes_normalize.h"
 #include "util.h"
 
@@ -114,6 +115,10 @@ string CLParser::Parse(const string& output) {
 
     string include = FilterShowIncludes(line);
     if (!include.empty()) {
+      if (g_show_includes) {
+        filtered_output.append(line);
+        filtered_output.append("\n");
+      }
       include = IncludesNormalize::Normalize(include, NULL);
       if (!IsSystemInclude(include))
         includes_.insert(include);

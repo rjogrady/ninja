@@ -15,3 +15,5 @@
 bool g_explaining = false;
 
 bool g_keep_rsp = false;
+
+bool g_show_includes = false;

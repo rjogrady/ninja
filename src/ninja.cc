@@ -860,6 +860,7 @@ bool DebugEnable(const string& name) {
 "  stats    print operation counts/timing info\n"
 "  explain  explain what caused a command to execute\n"
 "  keeprsp  don't delete @response files on success\n"
+"  showincludes  write output of /showIncludes to a .includes file\n"
 "multiple modes can be enabled via -d FOO -d BAR\n");
     return false;
   } else if (name == "stats") {
@@ -871,7 +872,10 @@ bool DebugEnable(const string& name) {
   } else if (name == "keeprsp") {
     g_keep_rsp = true;
     return true;
-  } else {
+  } else if (name == "showincludes") {
+    g_show_includes = true;
+    return true;
+  }else {
     const char* suggestion =
         SpellcheckString(name.c_str(), "stats", "explain", NULL);
     if (suggestion) {

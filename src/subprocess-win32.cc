@@ -252,8 +252,9 @@ void SubprocessSet::SetBatchMode(bool b, int failures_allowed) {
     // Unfortunately we have no way to know if a job failed until we get the
     // exit code from dbsrun.
     string keep_going = failures_allowed > 1 ? "-k" : "";
-    batch_command_ = string("dbsrun --no-job-object dbsbuild ") + keep_going + string(" -p ") +
-        userName + string(" -s ");
+    string quiet = " -q ";
+    batch_command_ = string("dbsrun --no-job-object dbsbuild ") + keep_going
+        + quiet + string(" -p ") + userName + string(" -s ");
   } else {
     batch_mode_ = false;
   }

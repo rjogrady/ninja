@@ -26,4 +26,6 @@ extern bool g_explaining;
 
 extern bool g_keep_rsp;
 
+extern bool g_show_includes;
+
 #endif // NINJA_EXPLAIN_H_
