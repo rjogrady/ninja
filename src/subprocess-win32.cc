@@ -229,11 +229,13 @@ void SubprocessSet::SetBatchMode(bool b, int failures_allowed) {
 
     // See if dbs agent is connected. dbsutil -l returns non-zero when
     // not connected.
-    if (system("dbsutil.exe -l > NUL 2>&1") != 0) {
-      Warning("SN-DBS broker is not connected. Disabling batch mode.");
-      fflush(stderr);
-      return;
-    }
+    // TODO: Commenting out for now since it's causing a multi-second stall
+    // on certain machines.
+    //if (system("dbsutil.exe -l > NUL 2>&1") != 0) {
+    //  Warning("SN-DBS broker is not connected. Disabling batch mode.");
+    //  fflush(stderr);
+    //  return;
+    //}
 
     batch_mode_ = true;
     string userName;
@@ -424,10 +426,10 @@ BatchSubprocess::BatchSubprocess(const vector<SubProc>& batch_procs) {
   for (uint32_t i = 0; i < batch_procs.size(); ++i) {
     const SubProc& sp = batch_procs[i];
     char batch_id[128];
-    _snprintf(batch_id, sizeof(batch_id), "echo __batchitem__=%d\n", i);
+    _snprintf(batch_id, sizeof(batch_id), "cmd /C echo __batchitem__=%d\n", i);
     char batch_success[128];
     _snprintf(batch_success, sizeof(batch_success),
-        " && echo %s=%d\n", success_token_.c_str(), i);
+        " && cmd /C echo %s=%d\n", success_token_.c_str(), i);
 
     // Each command is like:
     // "echo __batchitem__=5"

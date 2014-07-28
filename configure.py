@@ -129,6 +129,8 @@ if platform.is_msvc():
     if not options.debug:
         cflags += ['/Ox', '/DNDEBUG', '/GL']
         ldflags += ['/LTCG', '/OPT:REF', '/OPT:ICF']
+    else:
+        cflags += ['/Od']
 else:
     cflags = ['-g', '-Wall', '-Wextra',
               '-Wno-deprecated',
