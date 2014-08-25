@@ -83,6 +83,7 @@ struct BatchSubprocess : public Subprocess {
   /// Parse output including information about which jobs
   /// were successful.
   void ParseOutput(bool process_complete);
+  static void SetEchoTool(const std::string& s) {echo_tool_ = s;}
 private:
   /// Parse buf looking for all successful job tokens.
   /// Return a string with all those tokens removed, and
@@ -99,6 +100,7 @@ private:
   friend struct SubprocessSet;
 
   static string success_token_;
+  static string echo_tool_;
 
 };
 
