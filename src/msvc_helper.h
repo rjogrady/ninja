@@ -27,7 +27,8 @@ struct CLParser {
   /// Parse a line of cl.exe output and extract /showIncludes info.
   /// If a dependency is extracted, returns a nonempty string.
   /// Exposed for testing.
-  static string FilterShowIncludes(const string& line);
+  static string FilterShowIncludes(const string& line,
+                                   const string& deps_prefix);
 
   // Parse a line of cl.exe output and exclude warnings we don't want.
   // Return true if any warnings match and line should be discarded.
@@ -46,7 +47,7 @@ struct CLParser {
 
   /// Parse the full output of cl, returning the output (if any) that
   /// should printed.
-  string Parse(const string& output);
+  string Parse(const string& output, const string& deps_prefix);
 
   set<string> includes_;
 };

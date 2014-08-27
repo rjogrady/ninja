@@ -219,7 +219,10 @@ bool Edge::AllInputsReady() const {
 
 /// An Env for an Edge, providing $in and $out.
 struct EdgeEnv : public Env {
-  explicit EdgeEnv(Edge* edge) : edge_(edge) {}
+  enum EscapeKind { kShellEscape, kDoNotEscape };
+
+  explicit EdgeEnv(Edge* edge, EscapeKind escape)
+      : edge_(edge), escape_in_out_(escape) {}
   virtual string LookupVariable(const string& var);
 
   /// Given a span of Nodes, construct a list of paths suitable for a command
@@ -229,6 +232,7 @@ struct EdgeEnv : public Env {
                       char sep, bool strip_ext);
 
   Edge* edge_;
+  EscapeKind escape_in_out_;
 };
 
 string EdgeEnv::LookupVariable(const string& var) {
@@ -265,10 +269,12 @@ string EdgeEnv::MakePathList(vector<Node*>::iterator begin,
     const string& orig_path = (*i)->path();
     const string& path = strip_ext ?
         orig_path.substr(0, orig_path.find_last_of(".")) : orig_path;
-    if (path.find(" ") != string::npos) {
-      result.append("\"");
-      result.append(path);
-      result.append("\"");
+    if (escape_in_out_ == kShellEscape) {
+#if _WIN32
+      GetWin32EscapedString(path, &result);
+#else
+      GetShellEscapedString(path, &result);
+#endif
     } else {
       result.append(path);
     }
@@ -287,12 +293,22 @@ string Edge::EvaluateCommand(bool incl_rsp_file) {
 }
 
 string Edge::GetBinding(const string& key) {
-  EdgeEnv env(this);
+  EdgeEnv env(this, EdgeEnv::kShellEscape);
   return env.LookupVariable(key);
 }
 
 bool Edge::GetBindingBool(const string& key) {
   return !GetBinding(key).empty();
+}
+
+string Edge::GetUnescapedDepfile() {
+  EdgeEnv env(this, EdgeEnv::kDoNotEscape);
+  return env.LookupVariable("depfile");
+}
+
+string Edge::GetUnescapedRspfile() {
+  EdgeEnv env(this, EdgeEnv::kDoNotEscape);
+  return env.LookupVariable("rspfile");
 }
 
 void Edge::Dump(const char* prefix) const {
@@ -320,6 +336,10 @@ bool Edge::is_phony() const {
   return rule_ == &State::kPhonyRule;
 }
 
+bool Edge::use_console() const {
+  return pool() == &State::kConsolePool;
+}
+
 void Node::Dump(const char* prefix) const {
   printf("%s <%s 0x%p> mtime: %d%s, (:%s), ",
          prefix, path().c_str(), this,
@@ -342,7 +362,7 @@ bool ImplicitDepLoader::LoadDeps(Edge* edge, string* err) {
   if (!deps_type.empty())
     return LoadDepsFromLog(edge, err);
 
-  string depfile = edge->GetBinding("depfile");
+  string depfile = edge->GetUnescapedDepfile();
   string depformat = edge->GetBinding("depformat");
   if (!depfile.empty())
     return LoadDepFile(edge, depfile, depformat, err);

@@ -51,14 +51,15 @@ string EscapeForDepfile(const string& path) {
 }
 
 // static
-string CLParser::FilterShowIncludes(const string& line) {
-  static const char kMagicPrefix[] = "Note: including file: ";
+string CLParser::FilterShowIncludes(const string& line,
+                                    const string& deps_prefix) {
+  const string kDepsPrefixEnglish = "Note: including file: ";
   const char* in = line.c_str();
   const char* end = in + line.size();
-
-  if (end - in > (int)sizeof(kMagicPrefix) - 1 &&
-      memcmp(in, kMagicPrefix, sizeof(kMagicPrefix) - 1) == 0) {
-    in += sizeof(kMagicPrefix) - 1;
+  const string& prefix = deps_prefix.empty() ? kDepsPrefixEnglish : deps_prefix;
+  if (end - in > (int)prefix.size() &&
+      memcmp(in, prefix.c_str(), (int)prefix.size()) == 0) {
+    in += prefix.size();
     while (*in == ' ')
       ++in;
     return line.substr(in - line.c_str());
@@ -97,7 +98,7 @@ bool CLParser::FilterInputFilename(string line) {
       EndsWith(line, ".cpp");
 }
 
-string CLParser::Parse(const string& output) {
+string CLParser::Parse(const string& output, const string& deps_prefix) {
   string filtered_output;
 
   // HACK: Discard warnings D9002. "unknown option /errorReport:prompt"
@@ -113,7 +114,7 @@ string CLParser::Parse(const string& output) {
       end = output.size();
     string line = output.substr(start, end - start);
 
-    string include = FilterShowIncludes(line);
+    string include = FilterShowIncludes(line, deps_prefix);
     if (!include.empty()) {
       if (g_show_includes) {
         filtered_output.append(line);
@@ -167,7 +168,7 @@ int CLWrapper::Run(const string& command, string* output) {
   STARTUPINFO startup_info = {};
   startup_info.cb = sizeof(STARTUPINFO);
   startup_info.hStdInput = nul;
-  startup_info.hStdError = stdout_write;
+  startup_info.hStdError = ::GetStdHandle(STD_ERROR_HANDLE);
   startup_info.hStdOutput = stdout_write;
   startup_info.dwFlags |= STARTF_USESTDHANDLES;
 
