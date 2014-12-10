@@ -64,7 +64,7 @@ TEST_F(DepfileParserTest, CarriageReturnContinuation) {
   EXPECT_TRUE(Parse(
 "foo.o: \\\r\n"
 "  bar.h baz.h\r\n",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("foo.o", parser_.out_.AsString());
   EXPECT_EQ(2u, parser_.ins_.size());
@@ -123,7 +123,7 @@ TEST_F(DepfileParserTest, SpecialChars) {
 "C:/Program\\ Files\\ (x86)/Microsoft\\ crtdefs.h: \n"
 " en@quot.header~ t+t-x!=1 \n"
 " openldap/slapd.d/cn=config/cn=schema/cn={0}core.ldif",
-      &err));
+      &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("C:/Program Files (x86)/Microsoft crtdefs.h",
             parser_.out_.AsString());
