@@ -169,7 +169,8 @@ struct Tool {
 
   /// When to run the tool.
   enum {
-    /// Run after parsing the command-line flags (as early as possible).
+    /// Run after parsing the command-line flags and potentially changing
+    /// the current working directory (as early as possible).
     RUN_AFTER_FLAGS,
 
     /// Run after loading build.ninja.
@@ -198,9 +199,6 @@ void Usage(const BuildConfig& config) {
 "\n"
 "  -j N     run N jobs in parallel [default=%d, derived from CPUs available]\n"
 "  -l N     do not start new jobs if the load average is greater than N\n"
-#ifdef _WIN32
-"           (not yet implemented on Windows)\n"
-#endif
 "  -k N     keep going until N jobs fail [default=1]\n"
 "  -n       dry run (don't run commands but act like they succeeded)\n"
 "  -v       show all command lines while building\n"
@@ -237,7 +235,8 @@ struct RealFileReader : public ManifestParser::FileReader {
 /// Returns true if the manifest was rebuilt.
 bool NinjaMain::RebuildManifest(const char* input_file, string* err) {
   string path = input_file;
-  if (!CanonicalizePath(&path, err))
+  unsigned int slash_bits;  // Unused because this path is only used for lookup.
+  if (!CanonicalizePath(&path, &slash_bits, err))
     return false;
   Node* node = state_.LookupNode(path);
   if (!node)
@@ -259,7 +258,8 @@ bool NinjaMain::RebuildManifest(const char* input_file, string* err) {
 
 Node* NinjaMain::CollectTarget(const char* cpath, string* err) {
   string path = cpath;
-  if (!CanonicalizePath(&path, err))
+  unsigned int slash_bits;  // Unused because this path is only used for lookup.
+  if (!CanonicalizePath(&path, &slash_bits, err))
     return NULL;
 
   // Special syntax: "foo.cc^" means "the first output of foo.cc".
@@ -475,7 +475,7 @@ int NinjaMain::ToolFindDependency(int argc, char* argv[]) {
   return 0;
 }
 
-#if !defined(_WIN32) && !defined(NINJA_BOOTSTRAP)
+#if defined(NINJA_HAVE_BROWSE)
 int NinjaMain::ToolBrowse(int argc, char* argv[]) {
   if (argc < 1) {
     Error("expected a target to browse");
@@ -808,7 +808,7 @@ int NinjaMain::ToolUrtle(int argc, char** argv) {
 /// Returns a Tool, or NULL if Ninja should exit.
 const Tool* ChooseTool(const string& tool_name) {
   static const Tool kTools[] = {
-#if !defined(_WIN32) && !defined(NINJA_BOOTSTRAP)
+#if defined(NINJA_HAVE_BROWSE)
     { "browse", "browse dependency graph in a web browser",
       Tool::RUN_AFTER_LOAD, &NinjaMain::ToolBrowse },
 #endif
@@ -1185,13 +1185,6 @@ int real_main(int argc, char** argv) {
   if (exit_code >= 0)
     return exit_code;
 
-  if (options.tool && options.tool->when == Tool::RUN_AFTER_FLAGS) {
-    // None of the RUN_AFTER_FLAGS actually use a NinjaMain, but it's needed
-    // by other tools.
-    NinjaMain ninja(ninja_command, config);
-    return (ninja.*options.tool->func)(argc, argv);
-  }
-
   if (options.working_dir) {
     // The formatting of this string, complete with funny quotes, is
     // so Emacs can properly identify that the cwd has changed for
@@ -1203,6 +1196,13 @@ int real_main(int argc, char** argv) {
     if (chdir(options.working_dir) < 0) {
       Fatal("chdir to '%s' - %s", options.working_dir, strerror(errno));
     }
+  }
+
+  if (options.tool && options.tool->when == Tool::RUN_AFTER_FLAGS) {
+    // None of the RUN_AFTER_FLAGS actually use a NinjaMain, but it's needed
+    // by other tools.
+    NinjaMain ninja(ninja_command, config);
+    return (ninja.*options.tool->func)(argc, argv);
   }
 
 #ifdef _MSC_VER
@@ -1266,7 +1266,7 @@ int real_main(int argc, char** argv) {
 }  // anonymous namespace
 
 int main(int argc, char** argv) {
-#if !defined(NINJA_BOOTSTRAP) && defined(_MSC_VER)
+#if defined(_MSC_VER)
   // Set a handler to catch crashes not caught by the __try..__except
   // block (e.g. an exception in a stack-unwind-block).
   set_terminate(TerminateHandler);

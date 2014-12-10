@@ -135,7 +135,7 @@ bool DependencyScan::RecomputeDirty(Edge* edge, string* err) {
 }
 
 bool DependencyScan::RecomputeOutputsDirty(Edge* edge,
-                                           Node* most_recent_input) {   
+                                           Node* most_recent_input) {
   string command = edge->EvaluateCommand(true);
   for (vector<Node*>::iterator i = edge->outputs_.begin();
        i != edge->outputs_.end(); ++i) {
@@ -266,7 +266,7 @@ string EdgeEnv::MakePathList(vector<Node*>::iterator begin,
     if (!result.empty())
       result.push_back(sep);
 
-    const string& orig_path = (*i)->path();
+    const string& orig_path = (*i)->PathDecanonicalized();
     const string& path = strip_ext ?
         orig_path.substr(0, orig_path.find_last_of(".")) : orig_path;
     if (escape_in_out_ == kShellEscape) {
@@ -340,6 +340,20 @@ bool Edge::use_console() const {
   return pool() == &State::kConsolePool;
 }
 
+string Node::PathDecanonicalized() const {
+  string result = path_;
+#ifdef _WIN32
+  unsigned int mask = 1;
+  for (char* c = &result[0]; (c = strchr(c, '/')) != NULL;) {
+    if (slash_bits_ & mask)
+      *c = '\\';
+    c++;
+    mask <<= 1;
+  }
+#endif
+  return result;
+}
+
 void Node::Dump(const char* prefix) const {
   printf("%s <%s 0x%p> mtime: %d%s, (:%s), ",
          prefix, path().c_str(), this,
@@ -393,6 +407,11 @@ bool ImplicitDepLoader::LoadDepFile(Edge* edge, const string& path,
     return false;
   }
 
+  unsigned int unused;
+  if (!CanonicalizePath(const_cast<char*>(depfile.out_.str_),
+                        &depfile.out_.len_, &unused, err))
+    return false;
+
   // Check that this depfile matches the edge's output.
   Node* first_output = edge->outputs_[0];
   StringPiece opath = StringPiece(first_output->path());
@@ -409,10 +428,12 @@ bool ImplicitDepLoader::LoadDepFile(Edge* edge, const string& path,
   // Add all its in-edges.
   for (vector<StringPiece>::iterator i = depfile.ins_.begin();
        i != depfile.ins_.end(); ++i, ++implicit_dep) {
-    if (!CanonicalizePath(const_cast<char*>(i->str_), &i->len_, err))
+    unsigned int slash_bits;
+    if (!CanonicalizePath(const_cast<char*>(i->str_), &i->len_, &slash_bits,
+                          err))
       return false;
 
-    Node* node = state_->GetNode(*i);
+    Node* node = state_->GetNode(*i, slash_bits);
     *implicit_dep = node;
     node->AddOutEdge(edge);
     CreatePhonyInEdge(node);
