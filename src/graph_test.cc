@@ -139,13 +139,18 @@ TEST_F(GraphTest, RootNodes) {
   }
 }
 
-TEST_F(GraphTest, VarInOutQuoteSpaces) {
+TEST_F(GraphTest, VarInOutPathEscaping) {
   ASSERT_NO_FATAL_FAILURE(AssertParse(&state_,
-"build a$ b: cat nospace with$ space nospace2\n"));
+"build a$ b: cat no'space with$ space$$ no\"space2\n"));
 
   Edge* edge = GetNode("a b")->in_edge();
-  EXPECT_EQ("cat nospace \"with space\" nospace2 > \"a b\"",
+#if _WIN32
+  EXPECT_EQ("cat no'space \"with space$\" \"no\\\"space2\" > \"a b\"",
       edge->EvaluateCommand());
+#else
+  EXPECT_EQ("cat 'no'\\''space' 'with space$' 'no\"space2' > 'a b'",
+      edge->EvaluateCommand());
+#endif
 }
 
 // Regression test for https://github.com/martine/ninja/issues/380
@@ -246,3 +251,24 @@ TEST_F(GraphTest, NestedPhonyPrintsDone) {
   EXPECT_EQ(0, plan_.command_edge_count());
   ASSERT_FALSE(plan_.more_to_do());
 }
+
+#ifdef _WIN32
+TEST_F(GraphTest, Decanonicalize) {
+  ASSERT_NO_FATAL_FAILURE(AssertParse(&state_,
+"build out\\out1: cat src\\in1\n"
+"build out\\out2/out3\\out4: cat mid1\n"
+"build out3 out4\\foo: cat mid1\n"));
+
+  string err;
+  vector<Node*> root_nodes = state_.RootNodes(&err);
+  EXPECT_EQ(4u, root_nodes.size());
+  EXPECT_EQ(root_nodes[0]->path(), "out/out1");
+  EXPECT_EQ(root_nodes[1]->path(), "out/out2/out3/out4");
+  EXPECT_EQ(root_nodes[2]->path(), "out3");
+  EXPECT_EQ(root_nodes[3]->path(), "out4/foo");
+  EXPECT_EQ(root_nodes[0]->PathDecanonicalized(), "out\\out1");
+  EXPECT_EQ(root_nodes[1]->PathDecanonicalized(), "out\\out2/out3\\out4");
+  EXPECT_EQ(root_nodes[2]->PathDecanonicalized(), "out3");
+  EXPECT_EQ(root_nodes[3]->PathDecanonicalized(), "out4\\foo");
+}
+#endif

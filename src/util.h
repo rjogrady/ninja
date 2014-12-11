@@ -41,9 +41,18 @@ void Warning(const char* msg, ...);
 void Error(const char* msg, ...);
 
 /// Canonicalize a path like "foo/../bar.h" into just "bar.h".
-bool CanonicalizePath(string* path, string* err);
+/// |slash_bits| has bits set starting from lowest for a backslash that was
+/// normalized to a forward slash. (only used on Windows)
+bool CanonicalizePath(string* path, unsigned int* slash_bits, string* err);
+bool CanonicalizePath(char* path, size_t* len, unsigned int* slash_bits,
+                      string* err);
 
-bool CanonicalizePath(char* path, size_t* len, string* err);
+/// Appends |input| to |*result|, escaping according to the whims of either
+/// Bash, or Win32's CommandLineToArgvW().
+/// Appends the string directly to |result| without modification if we can
+/// determine that it contains no problematic characters.
+void GetShellEscapedString(const string& input, string* result);
+void GetWin32EscapedString(const string& input, string* result);
 
 /// Read a file to a string (in text mode: with CRLF conversion
 /// on Windows).

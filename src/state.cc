@@ -69,11 +69,13 @@ bool Pool::WeightedEdgeCmp(const Edge* a, const Edge* b) {
 }
 
 Pool State::kDefaultPool("", 0);
+Pool State::kConsolePool("console", 1);
 const Rule State::kPhonyRule("phony");
 
 State::State() {
   AddRule(&kPhonyRule);
   AddPool(&kDefaultPool);
+  AddPool(&kConsolePool);
 }
 
 void State::AddRule(const Rule* rule) {
@@ -109,18 +111,18 @@ Edge* State::AddEdge(const Rule* rule) {
   return edge;
 }
 
-Node* State::GetNode(StringPiece path) {
+Node* State::GetNode(StringPiece path, unsigned int slash_bits) {
   Node* node = LookupNode(path);
   if (node)
     return node;
-  node = new Node(path.AsString());
+  node = new Node(path.AsString(), slash_bits);
   paths_[node->path()] = node;
   return node;
 }
 
-Node* State::LookupNode(StringPiece path) {
+Node* State::LookupNode(StringPiece path) const {
   METRIC_RECORD("lookup node");
-  Paths::iterator i = paths_.find(path);
+  Paths::const_iterator i = paths_.find(path);
   if (i != paths_.end())
     return i->second;
   return NULL;
@@ -143,14 +145,14 @@ Node* State::SpellcheckNode(const string& path) {
   return result;
 }
 
-void State::AddIn(Edge* edge, StringPiece path) {
-  Node* node = GetNode(path);
+void State::AddIn(Edge* edge, StringPiece path, unsigned int slash_bits) {
+  Node* node = GetNode(path, slash_bits);
   edge->inputs_.push_back(node);
   node->AddOutEdge(edge);
 }
 
-void State::AddOut(Edge* edge, StringPiece path) {
-  Node* node = GetNode(path);
+void State::AddOut(Edge* edge, StringPiece path, unsigned int slash_bits) {
+  Node* node = GetNode(path, slash_bits);
   edge->outputs_.push_back(node);
   if (node->in_edge()) {
     Warning("multiple rules generate %s. "

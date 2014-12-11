@@ -47,7 +47,7 @@ struct Subprocess {
   const string& GetOutput() const;
 
  protected:
-  Subprocess();
+  Subprocess(bool use_console);
   bool Start(struct SubprocessSet* set, const string& command);
   void OnPipeReady();
 
@@ -71,6 +71,7 @@ struct Subprocess {
 #endif
   friend struct BatchSubprocess;
   friend struct SubprocessSet;
+  bool use_console_;
 };
 
 typedef std::pair<Subprocess*, std::string> SubProc;
@@ -80,6 +81,7 @@ struct BatchSubprocess : public Subprocess {
   ~BatchSubprocess();
   const vector<Subprocess*>& GetChildren() const { return children_; }
   const string& GetCommand() const;
+
   /// Parse output including information about which jobs
   /// were successful.
   void ParseOutput(bool process_complete);
@@ -109,7 +111,7 @@ struct SubprocessSet {
   SubprocessSet();
   ~SubprocessSet();
 
-  Subprocess* Add(const string& command);
+  Subprocess* Add(const string& command, bool use_console = false);
   bool DoWork();
   Subprocess* NextFinished();
   void Clear();

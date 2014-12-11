@@ -28,4 +28,6 @@ extern bool g_keep_rsp;
 
 extern bool g_show_includes;
 
+extern bool g_experimental_statcache;
+
 #endif // NINJA_EXPLAIN_H_

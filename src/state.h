@@ -82,6 +82,7 @@ struct Pool {
 /// Global state (file status, loaded rules) for a single run.
 struct State {
   static Pool kDefaultPool;
+  static Pool kConsolePool;
   static const Rule kPhonyRule;
 
   State();
@@ -94,12 +95,12 @@ struct State {
 
   Edge* AddEdge(const Rule* rule);
 
-  Node* GetNode(StringPiece path);
-  Node* LookupNode(StringPiece path);
+  Node* GetNode(StringPiece path, unsigned int slash_bits);
+  Node* LookupNode(StringPiece path) const;
   Node* SpellcheckNode(const string& path);
 
-  void AddIn(Edge* edge, StringPiece path);
-  void AddOut(Edge* edge, StringPiece path);
+  void AddIn(Edge* edge, StringPiece path, unsigned int slash_bits);
+  void AddOut(Edge* edge, StringPiece path, unsigned int slash_bits);
   bool AddDefault(StringPiece path, string* error);
 
   /// Reset state.  Keeps all nodes and edges, but restores them to the

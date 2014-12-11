@@ -14,7 +14,7 @@
 
 #include "depfile_parser.h"
 
-#include <gtest/gtest.h>
+#include "test.h"
 
 struct DepfileParserTest : public testing::Test {
   bool Parse(const char* input, string* err, const string& format);
@@ -53,6 +53,17 @@ TEST_F(DepfileParserTest, Continuation) {
   EXPECT_TRUE(Parse(
 "foo.o: \\\n"
 "  bar.h baz.h\n",
+      &err, ""));
+  ASSERT_EQ("", err);
+  EXPECT_EQ("foo.o", parser_.out_.AsString());
+  EXPECT_EQ(2u, parser_.ins_.size());
+}
+
+TEST_F(DepfileParserTest, CarriageReturnContinuation) {
+  string err;
+  EXPECT_TRUE(Parse(
+"foo.o: \\\r\n"
+"  bar.h baz.h\r\n",
       &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("foo.o", parser_.out_.AsString());
@@ -110,16 +121,19 @@ TEST_F(DepfileParserTest, SpecialChars) {
   string err;
   EXPECT_TRUE(Parse(
 "C:/Program\\ Files\\ (x86)/Microsoft\\ crtdefs.h: \n"
-" en@quot.header~ t+t-x!=1",
+" en@quot.header~ t+t-x!=1 \n"
+" openldap/slapd.d/cn=config/cn=schema/cn={0}core.ldif",
       &err, ""));
   ASSERT_EQ("", err);
   EXPECT_EQ("C:/Program Files (x86)/Microsoft crtdefs.h",
             parser_.out_.AsString());
-  ASSERT_EQ(2u, parser_.ins_.size());
+  ASSERT_EQ(3u, parser_.ins_.size());
   EXPECT_EQ("en@quot.header~",
             parser_.ins_[0].AsString());
   EXPECT_EQ("t+t-x!=1",
             parser_.ins_[1].AsString());
+  EXPECT_EQ("openldap/slapd.d/cn=config/cn=schema/cn={0}core.ldif",
+            parser_.ins_[2].AsString());
 }
 
 TEST_F(DepfileParserTest, UnifyMultipleOutputs) {
@@ -137,6 +151,7 @@ TEST_F(DepfileParserTest, RejectMultipleDifferentOutputs) {
   // check that multiple different outputs are rejected by the parser
   string err;
   EXPECT_FALSE(Parse("foo bar: x y z", &err, ""));
+  ASSERT_EQ("depfile has multiple output paths", err);
 }
 
 extern string FixupSNCDep(string);
