@@ -33,7 +33,6 @@ namespace {
 
 string DirName(const string& path) {
 #ifdef _WIN32
-  // Let Windows support forward or back slashes in path names.
   const char kPathSeparators[] = "\\/";
 #else
   const char kPathSeparators[] = "/";

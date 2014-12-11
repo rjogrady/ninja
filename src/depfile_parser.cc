@@ -26,7 +26,7 @@ static void FixSlashes(string* content_ptr) {
   string& content = *content_ptr;
   // Normalize slashes on the depfile contents before handing off to the parser
   for (size_t i = 0; i < content.size() - 1; ++i) {
-    if (content[i] == '\\' && content[i + 1] != '\n')
+    if (content[i] == '\\' && content[i + 1] != '\r' && content[i + 1] != '\n')
       content[i] = '/';
   }
 }
@@ -114,7 +114,7 @@ bool DepfileParser::Parse(string* content, string* err, const string& depformat)
           0,   0,   0,   0,   0,   0,   0,   0, 
           0,   0,   0,   0,   0,   0,   0,   0, 
           0,   0,   0,   0,   0,   0,   0,   0, 
-          0, 128,   0,   0,   0,   0,   0,   0, 
+          0, 128, 128,   0,   0,   0,   0,   0, 
         128, 128,   0, 128, 128, 128, 128, 128, 
         128, 128, 128, 128, 128, 128, 128, 128, 
         128, 128, 128,   0,   0, 128,   0,   0, 
@@ -151,7 +151,7 @@ bool DepfileParser::Parse(string* content, string* err, const string& depformat)
             if (yych <= 0x00) goto yy7;
             goto yy9;
           } else {
-            if (yych <= '!') goto yy5;
+            if (yych <= '"') goto yy5;
             if (yych <= '#') goto yy9;
             goto yy4;
           }

@@ -25,7 +25,7 @@ static void FixSlashes(string* content_ptr) {
   string& content = *content_ptr;
   // Normalize slashes on the depfile contents before handing off to the parser
   for (size_t i = 0; i < content.size() - 1; ++i) {
-    if (content[i] == '\\' && content[i + 1] != '\n')
+    if (content[i] == '\\' && content[i + 1] != '\r' && content[i + 1] != '\n')
       content[i] = '/';
   }
 }
@@ -134,7 +134,7 @@ bool DepfileParser::Parse(string* content, string* err, const string& depformat)
         *out++ = yych;
         continue;
       }
-      [a-zA-Z0-9+,/_:.~()}{@=!-]+ {
+      [a-zA-Z0-9+,/_:.~()}{@=!"-]+ {
         // Got a span of plain text.
         int len = (int)(in - start);
         // Need to shift it over if we're overwriting backslashes.

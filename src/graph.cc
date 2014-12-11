@@ -245,12 +245,14 @@ string EdgeEnv::LookupVariable(const string& var) {
   } else if (var == "out") {
     return MakePathList(edge_->outputs_.begin(),
                         edge_->outputs_.end(),
-                        ' ', false);
+                        ' ',
+                        false);
   } else if (var == "out_no_ext") {
     // Same as out, but with output's extension stripped off.
     return MakePathList(edge_->outputs_.begin(),
                         edge_->outputs_.end(),
-                        ' ', true);
+                        ' ',
+                        true);
   }
 
   // See notes on BindingEnv::LookupWithFallback.

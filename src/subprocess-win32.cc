@@ -23,7 +23,9 @@
 
 #include "util.h"
 
-Subprocess::Subprocess(bool use_console) : child_(NULL) , overlapped_(),
+Subprocess::Subprocess(bool use_console) : child_(NULL) ,
+                                           pipe_(NULL),
+                                           overlapped_(),
                                            is_reading_(false),
                                            use_console_(use_console),
                                            use_override_status_(false),
@@ -447,7 +449,9 @@ static string GetTempFileName() {
 string BatchSubprocess::success_token_ = string("__batchitem_success__");
 string BatchSubprocess::echo_tool_;
 
-BatchSubprocess::BatchSubprocess(const vector<SubProc>& batch_procs) {
+BatchSubprocess::BatchSubprocess(
+    const vector<SubProc>& batch_procs)
+    : Subprocess(false) {
   script_filename_= GetTempFileName();
   if (script_filename_.empty()) {
     Win32Fatal("GetTempFileName");
